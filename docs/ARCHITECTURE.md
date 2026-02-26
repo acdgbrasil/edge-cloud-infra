@@ -89,3 +89,52 @@ Utilizamos uma **Overlay Network (Rede de Sobreposição)**.
 
 ---
 **ACDG Brasil - Engenharia de Nuvem Privada**
+
+---
+
+## 7. Ciclo de Vida: Criando um Novo Microserviço 🚀
+
+Para que um novo serviço (ex: `minha-api`) ganhe vida e um subdomínio automático (`api.acdgbrasil.com.br`), siga este fluxo:
+
+### Passo 1: O Repositório do Código (GitHub Actions)
+1. Crie o código da sua aplicação em um novo repositório (ex: `acdgbrasil/minha-api`).
+2. Configure um **GitHub Action** para:
+   * Realizar o build da imagem Docker.
+   * Fazer o push para o **GHCR** (GitHub Container Registry) da organização: `ghcr.io/acdgbrasil/minha-api:latest`.
+
+### Passo 2: O Manifesto de Infraestrutura (Este Repositório)
+Neste repositório (`edge-cloud-infra`), crie o arquivo `apps/minha-api.yaml`:
+```yaml
+# Deployment, Service e Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minha-api-ingress
+spec:
+  rules:
+  - host: api.acdgbrasil.com.br # Nome do subdomínio desejado
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minha-api
+            port:
+              number: 80
+```
+
+### Passo 3: O Gateway (VPS)
+Acesse a VPS e adicione o novo subdomínio no Caddyfile:
+```bash
+# Na VPS: sudo nano /etc/caddy/Caddyfile
+api.acdgbrasil.com.br {
+    reverse_proxy 100.77.46.69:80
+}
+# Recarregue: sudo systemctl reload caddy
+```
+
+### Resultado Final
+O **FluxCD** detectará a mudança no passo 2, o **K3s** baixará a imagem criada no passo 1, e o **Caddy** no passo 3 passará a entregar o tráfego com HTTPS automático.
+
+---
