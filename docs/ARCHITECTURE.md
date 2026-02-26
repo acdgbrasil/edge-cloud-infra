@@ -138,3 +138,14 @@ api.acdgbrasil.com.br {
 O **FluxCD** detectará a mudança no passo 2, o **K3s** baixará a imagem criada no passo 1, e o **Caddy** no passo 3 passará a entregar o tráfego com HTTPS automático.
 
 ---
+
+---
+
+## 8. Dimensão Acadêmica (Living Paper) 🎓
+
+Esta infraestrutura foi concebida como parte de um **Trabalho de Conclusão de Curso (TCC)**. Diferente de artigos estáticos, este projeto utiliza o conceito de "Living Paper":
+*   **Acesso:** O conteúdo acadêmico está disponível em [tcc.acdgbrasil.com.br](https://tcc.acdgbrasil.com.br).
+*   **Transparência:** O texto é escrito em Markdown e versionado em tempo real.
+*   **Hospedagem:** O próprio objeto de estudo (a nuvem) hospeda o artigo científico que a descreve.
+
+---
