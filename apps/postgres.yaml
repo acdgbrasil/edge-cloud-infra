@@ -1,3 +1,17 @@
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: postgres-secrets
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: bitwarden-sm
+    kind: ClusterSecretStore
+  data:
+  - secretKey: password
+    remoteRef:
+      key: SC_DB_PASSWORD # Usando a chave que já existe no seu Bitwarden!
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -7,7 +21,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 10Gi # Você tem 1TB, pode aumentar isso depois!
+      storage: 10Gi
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -25,7 +39,7 @@ spec:
         app: postgres
     spec:
       nodeSelector:
-        hardware-type: high-performance # Força o banco a rodar no Xeon
+        hardware-type: high-performance
       containers:
       - name: postgres
         image: postgres:15
@@ -33,7 +47,10 @@ spec:
         - containerPort: 5432
         env:
         - name: POSTGRES_PASSWORD
-          value: "mude-me-depois" # No futuro usaremos o Bitwarden aqui!
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secrets
+              key: password
         volumeMounts:
         - name: postgres-storage
           mountPath: /var/lib/postgresql/data

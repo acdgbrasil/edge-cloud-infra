@@ -19,6 +19,9 @@ INTERNET
 [ WORKERS ] (Raspberry Pis / Outros Hardwares)
 ```
 
+## 🔐 Segurança & Segredos
+Todos os segredos da infraestrutura são gerenciados via **Bitwarden Secrets Manager**. Nenhuma senha é armazenada neste repositório. Veja o [Guia de Segredos](docs/SECRETS.md) para mais detalhes.
+
 ## 🛠️ Tecnologias Utilizadas
 
 *   **Rede Privada:** [Tailscale](https://tailscale.com/) (Overlay Network segura baseada em WireGuard).
