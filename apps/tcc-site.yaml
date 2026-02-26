@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tcc-site
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tcc-site
+  template:
+    metadata:
+      labels:
+        app: tcc-site
+    spec:
+      containers:
+      - name: tcc-site
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: html
+          mountPath: /usr/share/nginx/html
+      volumes:
+      - name: html
+        configMap:
+          name: tcc-html
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tcc-html
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+    <head><title>ACDG Cloud - TCC</title><style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;background:#0f1419;color:white;text-align:center;}</style></head>
+    <body><div><h1>🚀 TCC: Edge Cloud Computing</h1><p>Em breve, o livro aberto da infraestrutura ACDG Brasil.</p></div></body>
+    </html>
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tcc-site
+spec:
+  selector:
+    app: tcc-site
+  ports:
+  - port: 80
+    targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tcc-site-ingress
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: tcc.acdgbrasil.com.br
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: tcc-site
+            port:
+              number: 80
