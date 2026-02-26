@@ -1,54 +1,38 @@
-# Gerenciamento de Segredos (Bitwarden 🔐)
+# Gerenciamento de Segredos (Bitwarden Oficial 🔐)
 
-Nossa nuvem utiliza o **External Secrets Operator (ESO)** para integrar o Kubernetes diretamente com o **Bitwarden Secrets Manager**. Isso garante que NENHUMA senha seja escrita no GitHub.
+Nossa nuvem utiliza o **Operador Oficial da Bitwarden** para sincronizar segredos.
 
-## O Fluxo do Segredo
-1. Você cria o segredo no painel do **Bitwarden**.
-2. O Kubernetes (via ESO) "puxa" esse valor e cria um `Secret` interno.
-3. O seu Aplicativo lê esse `Secret` como uma variável de ambiente.
+## Como usar
 
-## Como usar em um novo App
+### Passo 1: Pegar o UUID do Segredo no Bitwarden
+No painel do Bitwarden, encontre o segredo desejado e copie o seu **ID (UUID)**.
 
-### Passo 1: No Bitwarden
-Crie um segredo no seu projeto do Bitwarden (ex: chave `MINHA_API_KEY`).
-
-### Passo 2: No GitHub (Infra)
-Crie um arquivo `ExternalSecret` na pasta `/apps`:
+### Passo 2: Criar o BitwardenSecret no GitHub
+Crie um arquivo na pasta `/apps`:
 
 ```yaml
-apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
+apiVersion: k8s.bitwarden.com/v1
+kind: BitwardenSecret
 metadata:
-  name: meu-app-secrets
+  name: meu-app-secret
 spec:
-  refreshInterval: 1h # Sincroniza a cada 1 hora
-  secretStoreRef:
-    name: bitwarden-sm
-    kind: ClusterSecretStore
-  data:
-  - secretKey: api_key        # Como o segredo se chamará no K8s
-    remoteRef:
-      key: MINHA_API_KEY      # Nome exato da chave no Bitwarden
+  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
+  secretName: nome-do-secret-final
+  authToken:
+    name: bw-auth-token
+    key: token
+  map:
+    - bwSecretId: "COLE-O-UUID-AQUI"
+      secretKeyName: nome_da_chave_no_env
 ```
 
-### Passo 3: No seu Deployment
-Referencie o segredo no seu container:
-
+### Passo 3: Usar no App
+No seu Deployment, use:
 ```yaml
 env:
-  - name: API_KEY
+  - name: MINHA_SENHA
     valueFrom:
       secretKeyRef:
-        name: meu-app-secrets # Nome do ExternalSecret acima
-        key: api_key
-```
-
-## Comandos de Debug
-Para ver se os segredos estão sincronizando:
-```bash
-# Ver status da sincronização
-kubectl get externalsecret
-
-# Ver se o segredo interno do K8s foi criado
-kubectl get secret meu-app-secrets -o yaml
+        name: nome-do-secret-final
+        key: nome_da_chave_no_env
 ```
