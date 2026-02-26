@@ -1,10 +1,10 @@
 apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
 metadata:
-  name: bitwarden-sm
+  name: bitwardensecretsmanager-sm
 spec:
   provider:
-    bitwarden:
+    bitwardensecretsmanager:
       organizationId: d00e0ecf-235b-4168-8367-b35e00dbf84d # ID que pegamos no bws list
       auth:
         secretRef:
