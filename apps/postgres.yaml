@@ -6,8 +6,8 @@ spec:
   organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
   secretName: postgres-credentials # Nome do segredo que o K8s vai criar
   authToken:
-    name: bw-auth-token
-    key: token
+    secretName: bw-auth-token
+    secretKey: token
   map:
     - bwSecretId: "70a8c524-eb0a-4445-a727-b3f000567938" # ID do SC_DB_PASSWORD que vimos antes
       secretKeyName: password

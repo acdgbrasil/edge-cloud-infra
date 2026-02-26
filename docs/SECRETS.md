@@ -19,8 +19,8 @@ spec:
   organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
   secretName: nome-do-secret-final
   authToken:
-    name: bw-auth-token
-    key: token
+    secretName: bw-auth-token
+    secretKey: token
   map:
     - bwSecretId: "COLE-O-UUID-AQUI"
       secretKeyName: nome_da_chave_no_env
