@@ -36,6 +36,8 @@ spec:
       labels:
         app: social-care
     spec:
+      imagePullSecrets:
+      - name: ghcr-credentials
       nodeSelector:
         hardware-type: high-performance
       containers:
