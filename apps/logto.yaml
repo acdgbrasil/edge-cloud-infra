@@ -52,8 +52,6 @@ spec:
         env:
         - name: CI
           value: "true"
-        - name: DB_URL
-          value: postgresql://postgres:$(PGPASSWORD)@postgres:5432/logto
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
@@ -63,8 +61,8 @@ spec:
         - /bin/sh
         - -c
         - |
-          DB_URL="postgresql://postgres:${PGPASSWORD}@postgres:5432/logto"
-          export DB_URL
+          ENCODED_PW=$(printf '%s' "$PGPASSWORD" | sed 's|/|%2F|g; s|@|%40|g; s|#|%23|g; s|?|%3F|g; s| |%20|g')
+          export DB_URL="postgresql://postgres:${ENCODED_PW}@postgres:5432/logto"
           npm run cli db seed -- --swe && npm run alteration deploy latest
       restartPolicy: Never
   backoffLimit: 3
@@ -123,10 +121,15 @@ spec:
             secretKeyRef:
               name: postgres-credentials
               key: password
-        - name: DB_URL
-          value: postgresql://postgres:$(PGPASSWORD)@postgres:5432/logto
         - name: DATABASE_STATEMENT_TIMEOUT
           value: DISABLE_TIMEOUT
+        command:
+        - /bin/sh
+        - -c
+        - |
+          ENCODED_PW=$(printf '%s' "$PGPASSWORD" | sed 's|/|%2F|g; s|@|%40|g; s|#|%23|g; s|?|%3F|g; s| |%20|g')
+          export DB_URL="postgresql://postgres:${ENCODED_PW}@postgres:5432/logto"
+          npm start
         volumeMounts:
         - name: connectors
           mountPath: /etc/logto/packages/core/connectors
