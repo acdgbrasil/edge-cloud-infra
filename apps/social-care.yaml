@@ -15,7 +15,7 @@ spec:
     secretName: bw-auth-token
     secretKey: token
   map:
-    - bwSecretId: "REPLACE_WITH_DB_PASSWORD_UUID"
+    - bwSecretId: "f97c97a1-08ce-4fae-9e89-b3f000578392"
       secretKeyName: db-password
 
 ---
