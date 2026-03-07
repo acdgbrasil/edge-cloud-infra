@@ -1,0 +1,210 @@
+# -----------------------------------------------------------
+# Logto — Identity Provider (OIDC/OAuth)
+# Imagem: ghcr.io/logto-io/logto
+# Core: porta 3001 | Admin Console: porta 3002
+# -----------------------------------------------------------
+
+---
+# 1. Job: Cria o database "logto" no PostgreSQL (idempotente)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: logto-db-init
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: create-db
+        image: postgres:15
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: password
+        command:
+        - /bin/sh
+        - -c
+        - |
+          psql -h postgres -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'logto'" | grep -q 1 || \
+          psql -h postgres -U postgres -c "CREATE DATABASE logto"
+      restartPolicy: Never
+  backoffLimit: 3
+
+---
+# 2. Job: Seed + Alteration do Logto (roda uma vez)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: logto-db-seed
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: seed
+        image: ghcr.io/logto-io/logto:latest
+        env:
+        - name: CI
+          value: "true"
+        - name: DB_URL
+          value: postgresql://postgres:$(PGPASSWORD)@postgres:5432/logto
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: password
+        command:
+        - /bin/sh
+        - -c
+        - |
+          DB_URL="postgresql://postgres:${PGPASSWORD}@postgres:5432/logto"
+          export DB_URL
+          npm run cli db seed -- --swe && npm run alteration deploy latest
+      restartPolicy: Never
+  backoffLimit: 3
+
+---
+# 3. Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logto
+  labels:
+    app: logto
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logto
+  template:
+    metadata:
+      labels:
+        app: logto
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      volumes:
+      - name: connectors
+        emptyDir: {}
+      initContainers:
+      - name: init-connectors
+        image: ghcr.io/logto-io/logto:latest
+        command:
+        - /bin/sh
+        args:
+        - -c
+        - "npm run cli connector add -- --official"
+        volumeMounts:
+        - name: connectors
+          mountPath: /etc/logto/packages/core/connectors
+      containers:
+      - name: logto
+        image: ghcr.io/logto-io/logto:latest
+        ports:
+        - name: core
+          containerPort: 3001
+        - name: admin
+          containerPort: 3002
+        env:
+        - name: TRUST_PROXY_HEADER
+          value: "1"
+        - name: ENDPOINT
+          value: "https://auth.acdgbrasil.com.br"
+        - name: ADMIN_ENDPOINT
+          value: "https://auth-admin.acdgbrasil.com.br"
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: password
+        - name: DB_URL
+          value: postgresql://postgres:$(PGPASSWORD)@postgres:5432/logto
+        - name: DATABASE_STATEMENT_TIMEOUT
+          value: DISABLE_TIMEOUT
+        volumeMounts:
+        - name: connectors
+          mountPath: /etc/logto/packages/core/connectors
+        readinessProbe:
+          httpGet:
+            path: /api/status
+            port: 3001
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /api/status
+            port: 3001
+          initialDelaySeconds: 15
+          periodSeconds: 30
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+# 4. Service — Core (OIDC endpoint)
+apiVersion: v1
+kind: Service
+metadata:
+  name: logto
+spec:
+  selector:
+    app: logto
+  ports:
+  - name: core
+    port: 80
+    targetPort: 3001
+  - name: admin
+    port: 3002
+    targetPort: 3002
+
+---
+# 5. Ingress — Core (auth.acdgbrasil.com.br)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: logto-ingress
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: auth.acdgbrasil.com.br
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: logto
+            port:
+              number: 80
+
+---
+# 6. Ingress — Admin Console (auth-admin.acdgbrasil.com.br)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: logto-admin-ingress
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: auth-admin.acdgbrasil.com.br
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: logto
+            port:
+              number: 3002
