@@ -25,6 +25,7 @@ spec:
     zitadel:
       masterkeySecretName: zitadel-masterkey
       configSecretName: zitadel-db-credentials
+      configSecretKey: config.yaml
       configmapConfig:
         ExternalDomain: "auth.acdgbrasil.com.br"
         ExternalSecure: true
