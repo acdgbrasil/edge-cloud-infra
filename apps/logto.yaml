@@ -123,13 +123,15 @@ spec:
               key: password
         - name: DATABASE_STATEMENT_TIMEOUT
           value: DISABLE_TIMEOUT
+        - name: DATABASE_CONNECTION_TIMEOUT
+          value: "10000"
         command:
         - /bin/sh
         - -c
         - |
           ENCODED_PW=$(printf '%s' "$PGPASSWORD" | sed 's|/|%2F|g; s|@|%40|g; s|#|%23|g; s|?|%3F|g; s| |%20|g')
-          export DB_URL="postgresql://postgres:${ENCODED_PW}@postgres:5432/logto?sslmode=disable"
-          cd packages/core && NODE_ENV=production exec node .
+          echo "DB_URL=postgresql://postgres:${ENCODED_PW}@postgres:5432/logto" > /etc/logto/.env
+          npm start
         volumeMounts:
         - name: connectors
           mountPath: /etc/logto/packages/core/connectors
