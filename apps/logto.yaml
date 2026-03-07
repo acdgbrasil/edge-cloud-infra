@@ -131,6 +131,7 @@ spec:
         - |
           ENCODED_PW=$(printf '%s' "$PGPASSWORD" | sed 's|/|%2F|g; s|@|%40|g; s|#|%23|g; s|?|%3F|g; s| |%20|g')
           export DB_URL="postgresql://postgres:${ENCODED_PW}@postgres:5432/logto"
+          unset PGPASSWORD
           npm start
         volumeMounts:
         - name: connectors
