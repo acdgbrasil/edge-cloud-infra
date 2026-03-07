@@ -1,0 +1,103 @@
+# -----------------------------------------------------------
+# Zitadel — Identity Provider (OIDC/OAuth)
+# Chart: zitadel/zitadel
+# Console: https://auth.acdgbrasil.com.br/ui/console
+# -----------------------------------------------------------
+
+---
+# 1. HelmRepository — aponta para o chart do Zitadel
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: zitadel
+  namespace: flux-system
+spec:
+  interval: 24h
+  url: https://charts.zitadel.com
+
+---
+# 2. HelmRelease — instala o chart com nossos valores
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: zitadel
+  namespace: default
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: zitadel
+      sourceRef:
+        kind: HelmRepository
+        name: zitadel
+        namespace: flux-system
+  values:
+    replicaCount: 1
+
+    zitadel:
+      masterkeySecretName: zitadel-masterkey
+      configSecretName: zitadel-db-credentials
+      configmapConfig:
+        ExternalDomain: "auth.acdgbrasil.com.br"
+        ExternalSecure: true
+        ExternalPort: 443
+        TLS:
+          Enabled: false
+        Database:
+          Postgres:
+            Host: "postgres"
+            Port: 5432
+            Database: "zitadel"
+            User:
+              Username: "zitadel"
+              SSL:
+                Mode: "disable"
+            Admin:
+              Username: "postgres"
+              SSL:
+                Mode: "disable"
+        FirstInstance:
+          Org:
+            Human:
+              UserName: "admin"
+              FirstName: "ACDG"
+              LastName: "Admin"
+              Email: "admin@acdgbrasil.com.br"
+              Password: "AcdgAdmin2024!"
+              PasswordChangeRequired: true
+
+    ingress:
+      enabled: true
+      className: traefik
+      annotations:
+        kubernetes.io/ingress.class: traefik
+      hosts:
+        - host: auth.acdgbrasil.com.br
+          paths:
+            - path: /
+              pathType: Prefix
+      tls: []
+
+    login:
+      ingress:
+        enabled: true
+        className: traefik
+        annotations:
+          kubernetes.io/ingress.class: traefik
+        hosts:
+          - host: auth.acdgbrasil.com.br
+            paths:
+              - path: /ui/v2/login
+                pathType: Prefix
+        tls: []
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    nodeSelector:
+      hardware-type: high-performance
