@@ -1,0 +1,10 @@
+# HelmRepository para o Zitadel — fica no flux-system
+# (separado de apps/ para não ser afetado pelo targetNamespace: default)
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: zitadel
+  namespace: flux-system
+spec:
+  interval: 24h
+  url: https://charts.zitadel.com
