@@ -1,0 +1,114 @@
+# -----------------------------------------------------------
+# svc-social-care — Microserviço de Assistência Social (ACDG)
+# Imagem: ghcr.io/acdgbrasil/svc-social-care
+# -----------------------------------------------------------
+
+# 1. Segredos via Bitwarden Secrets Manager
+apiVersion: k8s.bitwarden.com/v1
+kind: BitwardenSecret
+metadata:
+  name: social-care-bitwardensecret
+spec:
+  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
+  secretName: social-care-credentials
+  authToken:
+    secretName: bw-auth-token
+    secretKey: token
+  map:
+    - bwSecretId: "REPLACE_WITH_DB_PASSWORD_UUID"
+      secretKeyName: db-password
+
+---
+# 2. Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: social-care
+  labels:
+    app: social-care
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: social-care
+  template:
+    metadata:
+      labels:
+        app: social-care
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: social-care
+        image: ghcr.io/acdgbrasil/svc-social-care:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: PORT
+          value: "3000"
+        - name: DB_HOST
+          value: postgres
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_USER
+          value: postgres
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: social-care-credentials
+              key: db-password
+        - name: DB_NAME
+          value: social_care
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+# 3. Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: social-care
+spec:
+  selector:
+    app: social-care
+  ports:
+  - port: 80
+    targetPort: 3000
+
+---
+# 4. Ingress (Traefik)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: social-care-ingress
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: social-care.acdgbrasil.com.br
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: social-care
+            port:
+              number: 80
