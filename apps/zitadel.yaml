@@ -10,7 +10,6 @@ apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: zitadel
-  namespace: flux-system
 spec:
   interval: 24h
   url: https://charts.zitadel.com
@@ -21,7 +20,6 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: zitadel
-  namespace: default
 spec:
   interval: 5m
   chart:
@@ -30,7 +28,6 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: zitadel
-        namespace: flux-system
   values:
     replicaCount: 1
 
