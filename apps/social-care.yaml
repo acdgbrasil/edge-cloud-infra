@@ -3,21 +3,6 @@
 # Imagem: ghcr.io/acdgbrasil/svc-social-care
 # -----------------------------------------------------------
 
-# 1. Segredos via Bitwarden Secrets Manager
-apiVersion: k8s.bitwarden.com/v1
-kind: BitwardenSecret
-metadata:
-  name: social-care-bitwardensecret
-spec:
-  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
-  secretName: social-care-credentials
-  authToken:
-    secretName: bw-auth-token
-    secretKey: token
-  map:
-    - bwSecretId: "f97c97a1-08ce-4fae-9e89-b3f000578392"
-      secretKeyName: db-password
-
 ---
 # 2. Deployment
 apiVersion: apps/v1
@@ -57,8 +42,8 @@ spec:
         - name: DB_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: social-care-credentials
-              key: db-password
+              name: postgres-credentials
+              key: password
         - name: DB_NAME
           value: social_care
         readinessProbe:
