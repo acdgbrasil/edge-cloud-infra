@@ -19,7 +19,7 @@ spec:
     secretName: bw-auth-token
     secretKey: token
   map:
-    - bwSecretId: "SUBSTITUIR_PELO_ID_DO_SECRET_HML"
+    - bwSecretId: "c0ad6057-d8a5-4369-817b-b3f00057240f"
       secretKeyName: password
 
 ---
