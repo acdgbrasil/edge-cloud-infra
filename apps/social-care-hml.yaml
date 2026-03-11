@@ -6,8 +6,7 @@
 
 ---
 # 1. BitwardenSecret — Credenciais do PostgreSQL HML
-# AÇÃO MANUAL: Criar secret no Bitwarden Secret Manager (ambiente HML)
-#              e substituir o bwSecretId abaixo pelo ID real.
+# AÇÃO MANUAL: Criar secrets no Bitwarden Secret Manager (ambiente HML)
 apiVersion: k8s.bitwarden.com/v1
 kind: BitwardenSecret
 metadata:
@@ -21,6 +20,26 @@ spec:
   map:
     - bwSecretId: "c0ad6057-d8a5-4369-817b-b3f00057240f"
       secretKeyName: password
+
+---
+# 1b. BitwardenSecret — Credenciais de Introspection (Zitadel API app)
+# AÇÃO MANUAL: Criar secret no Bitwarden com client_id e client_secret
+#              da API app social-care-hml-tests e substituir os bwSecretIds.
+apiVersion: k8s.bitwarden.com/v1
+kind: BitwardenSecret
+metadata:
+  name: zitadel-introspect-hml-bitwardensecret
+spec:
+  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
+  secretName: zitadel-introspect-hml-credentials
+  authToken:
+    secretName: bw-auth-token
+    secretKey: token
+  map:
+    - bwSecretId: "38e16810-296c-469f-9109-b40a01759c1f"
+      secretKeyName: client-id
+    - bwSecretId: "69cdf9d5-113e-42b8-8d46-b40a0175b725"
+      secretKeyName: client-secret
 
 ---
 # 2. PersistentVolumeClaim — PostgreSQL HML (menor que produção)
@@ -148,6 +167,18 @@ spec:
           value: social_care_hml
         - name: JWKS_URL
           value: "https://auth.acdgbrasil.com.br/oauth/v2/keys"
+        - name: ZITADEL_ISSUER
+          value: "https://auth.acdgbrasil.com.br"
+        - name: ZITADEL_INTROSPECT_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: zitadel-introspect-hml-credentials
+              key: client-id
+        - name: ZITADEL_INTROSPECT_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: zitadel-introspect-hml-credentials
+              key: client-secret
         readinessProbe:
           httpGet:
             path: /health
