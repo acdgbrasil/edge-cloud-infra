@@ -42,6 +42,22 @@ spec:
       secretKeyName: client-secret
 
 ---
+# 1c. BitwardenSecret — Allowlist de service accounts autorizados
+apiVersion: k8s.bitwarden.com/v1
+kind: BitwardenSecret
+metadata:
+  name: service-accounts-hml-bitwardensecret
+spec:
+  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
+  secretName: service-accounts-hml-credentials
+  authToken:
+    secretName: bw-auth-token
+    secretKey: token
+  map:
+    - bwSecretId: "eef17504-4625-40c9-a9bd-b40a017bb563"
+      secretKeyName: allowed-ids
+
+---
 # 2. PersistentVolumeClaim — PostgreSQL HML (menor que produção)
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -179,6 +195,11 @@ spec:
             secretKeyRef:
               name: zitadel-introspect-hml-credentials
               key: client-secret
+        - name: ALLOWED_SERVICE_ACCOUNTS
+          valueFrom:
+            secretKeyRef:
+              name: service-accounts-hml-credentials
+              key: allowed-ids
         readinessProbe:
           httpGet:
             path: /health
