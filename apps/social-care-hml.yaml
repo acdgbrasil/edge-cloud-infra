@@ -181,6 +181,8 @@ spec:
               key: password
         - name: DB_NAME
           value: social_care_hml
+        - name: VERBOSE_ERRORS
+          value: "true"
         - name: JWKS_URL
           value: "https://auth.acdgbrasil.com.br/oauth/v2/keys"
         - name: ZITADEL_ISSUER
