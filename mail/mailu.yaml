@@ -79,6 +79,11 @@ data:
   INITIAL_ADMIN_DOMAIN: "acdgbrasil.com.br"
   INITIAL_ADMIN_MODE: "ifmissing"
 
+  # --- DNS ---
+  # CoreDNS do K3s não faz validação DNSSEC.
+  # Seguro em K8s porque o tráfego DNS é interno ao cluster.
+  SKIP_DNSSEC_CHECK: "true"
+
   # --- Logging ---
   LOG_LEVEL: "WARNING"
 
