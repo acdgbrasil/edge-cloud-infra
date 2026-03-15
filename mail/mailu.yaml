@@ -59,6 +59,7 @@ data:
   REAL_IP_FROM: "10.42.0.0/16"
 
   # --- Web ---
+  ADMIN: "true"
   WEB_ADMIN: "/admin"
   WEB_WEBMAIL: "/webmail"
   WEBMAIL: "roundcube"
