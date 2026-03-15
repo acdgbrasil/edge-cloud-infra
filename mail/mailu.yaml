@@ -322,7 +322,13 @@ spec:
           periodSeconds: 10
       volumes:
       - name: certs
-        emptyDir: {}
+        secret:
+          secretName: mailu-tls-cert
+          items:
+          - key: tls.crt
+            path: cert.pem
+          - key: tls.key
+            path: key.pem
 
 # --- Front: Service interno (ClusterIP) para Ingress HTTP ---
 ---
@@ -345,9 +351,9 @@ spec:
     port: 143
     targetPort: 143
 
-# --- Front: LoadBalancer para portas de e-mail (TCP) ---
-# K3s ServiceLB expõe estas portas no IP do nó (100.77.46.69)
-# HAProxy na VPS encaminha TCP para estas portas via Tailscale
+# --- Front: NodePort para portas de e-mail (TCP) ---
+# HAProxy na VPS encaminha TCP para estas NodePorts via Tailscale (100.77.46.69)
+# NodePorts fixas: SMTP=30208, SMTPS=32286, Submission=31420, IMAPS=32078
 ---
 apiVersion: v1
 kind: Service
@@ -355,25 +361,29 @@ metadata:
   name: mailu-mail-lb
   namespace: mail
 spec:
-  type: LoadBalancer
+  type: NodePort
   selector:
     app: mailu-front
   ports:
   - name: smtp
     port: 25
     targetPort: 25
+    nodePort: 30208
     protocol: TCP
   - name: smtps
     port: 465
     targetPort: 465
+    nodePort: 32286
     protocol: TCP
   - name: submission
     port: 587
     targetPort: 587
+    nodePort: 31420
     protocol: TCP
   - name: imaps
     port: 993
     targetPort: 993
+    nodePort: 32078
     protocol: TCP
 
 # ==========================================================
