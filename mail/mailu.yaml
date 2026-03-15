@@ -1,0 +1,714 @@
+# -----------------------------------------------------------
+# Mailu — Servidor de E-mail Self-Hosted
+# Componentes: Redis, Admin, Front (nginx), Postfix, Dovecot,
+#              Rspamd, Webmail (Roundcube)
+# Domínio: acdgbrasil.com.br
+# Hostname: mail.acdgbrasil.com.br
+# -----------------------------------------------------------
+#
+# PRÉ-REQUISITOS (manuais, antes do deploy):
+#
+#   1. Criar o secret-key do Mailu:
+#      kubectl create secret generic mailu-secret-key -n mail \
+#        --from-literal=secret-key=$(openssl rand -hex 16)
+#
+#   2. Criar a senha do admin inicial:
+#      kubectl create secret generic mailu-admin-credentials -n mail \
+#        --from-literal=admin-password='<SENHA-FORTE-AQUI>'
+#
+#   3. Criar o secret do Resend (relay SMTP):
+#      Já registrado no Bitwarden SM (ID: b376d1fe-0038-4540-a945-b40e012e7600)
+#      O BitwardenSecret abaixo sincroniza automaticamente.
+#      Pré-requisito: bw-auth-token deve existir no namespace mail:
+#        kubectl get secret bw-auth-token -n default -o json \
+#          | jq '.metadata.namespace="mail" | del(.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp)' \
+#          | kubectl apply -f -
+#
+#   4. Garantir que o diretório /var/lib/mailu existe no Xeon:
+#      sudo mkdir -p /var/lib/mailu/{data,data/dkim,mail,filter,queue,webmail,overrides}
+#      sudo chmod 755 /var/lib/mailu
+#
+# -----------------------------------------------------------
+
+# ==========================================================
+# ConfigMap — Configuração compartilhada por todos os pods
+# ==========================================================
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mailu-config
+  namespace: mail
+data:
+  # --- Geral ---
+  DOMAIN: "acdgbrasil.com.br"
+  HOSTNAMES: "mail.acdgbrasil.com.br"
+  POSTMASTER: "admin"
+  SITENAME: "ACDG Mail"
+  WEBSITE: "https://acdgbrasil.com.br"
+
+  # --- TLS ---
+  # "mail" gera certificados auto-assinados (funcional para MTA-to-MTA).
+  # Para certs Let's Encrypt em produção, migrar para TLS_FLAVOR=cert
+  # com cert-manager (ver docs/MAIL.md, Fase 5).
+  TLS_FLAVOR: "mail"
+
+  # --- Rede ---
+  SUBNET: "10.42.0.0/16"
+  REAL_IP_HEADER: "X-Forwarded-For"
+  REAL_IP_FROM: "10.42.0.0/16"
+
+  # --- Web ---
+  WEB_ADMIN: "/admin"
+  WEB_WEBMAIL: "/webmail"
+  WEBMAIL: "roundcube"
+
+  # --- E-mail ---
+  MESSAGE_SIZE_LIMIT: "52428800"
+  RECIPIENT_DELIMITER: "+"
+  DMARC_RUA: "admin"
+  DMARC_RUF: "admin"
+
+  # --- Rate limiting ---
+  AUTH_RATELIMIT_IP: "60/hour"
+  AUTH_RATELIMIT_USER: "100/day"
+
+  # --- Admin inicial ---
+  INITIAL_ADMIN_ACCOUNT: "admin"
+  INITIAL_ADMIN_DOMAIN: "acdgbrasil.com.br"
+  INITIAL_ADMIN_MODE: "ifmissing"
+
+  # --- Logging ---
+  LOG_LEVEL: "WARNING"
+
+  # --- Relay SMTP (Resend) ---
+  # Envio externo via Resend (Smart Host) porque MagaluCloud
+  # não suporta PTR/rDNS e pode bloquear porta 25 de saída.
+  # Recebimento continua direto (porta 25 de entrada).
+  RELAYHOST: "[smtp.resend.com]:465"
+  RELAY_USER: "resend"
+
+  # --- Recursos desabilitados ---
+  DISABLE_STATISTICS: "true"
+  FETCHMAIL_ENABLED: "false"
+
+# ==========================================================
+# BitwardenSecret — API key do Resend (relay SMTP)
+# ==========================================================
+---
+apiVersion: k8s.bitwarden.com/v1
+kind: BitwardenSecret
+metadata:
+  name: resend-bitwardensecret
+  namespace: mail
+spec:
+  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
+  secretName: resend-credentials
+  authToken:
+    secretName: bw-auth-token
+    secretKey: token
+  map:
+    - bwSecretId: "b376d1fe-0038-4540-a945-b40e012e7600"
+      secretKeyName: api-key
+
+# ==========================================================
+# Redis — Cache para Admin e Rspamd
+# ==========================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: mail
+  labels:
+    app: mailu-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mailu-redis
+  template:
+    metadata:
+      labels:
+        app: mailu-redis
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+      volumes:
+      - name: redis-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: mail
+spec:
+  selector:
+    app: mailu-redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+
+# ==========================================================
+# Admin — Interface de administração + DB SQLite + DKIM keys
+# ==========================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin
+  namespace: mail
+  labels:
+    app: mailu-admin
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mailu-admin
+  template:
+    metadata:
+      labels:
+        app: mailu-admin
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: admin
+        image: ghcr.io/mailu/admin:2024.06
+        ports:
+        - containerPort: 8080
+          name: http
+        envFrom:
+        - configMapRef:
+            name: mailu-config
+        env:
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mailu-secret-key
+              key: secret-key
+        - name: INITIAL_ADMIN_PW
+          valueFrom:
+            secretKeyRef:
+              name: mailu-admin-credentials
+              key: admin-password
+        volumeMounts:
+        - name: mailu-data
+          mountPath: /data
+        - name: mailu-data
+          mountPath: /dkim
+          subPath: dkim
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      volumes:
+      - name: mailu-data
+        hostPath:
+          path: /var/lib/mailu/data
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin
+  namespace: mail
+spec:
+  selector:
+    app: mailu-admin
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+# ==========================================================
+# Front (nginx) — Reverse proxy + TLS termination mail
+# Ponto de entrada para SMTP, IMAP e HTTP (webmail/admin)
+# ==========================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: front
+  namespace: mail
+  labels:
+    app: mailu-front
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mailu-front
+  template:
+    metadata:
+      labels:
+        app: mailu-front
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: nginx
+        image: ghcr.io/mailu/nginx:2024.06
+        ports:
+        - containerPort: 80
+          name: http
+        - containerPort: 25
+          name: smtp
+        - containerPort: 465
+          name: smtps
+        - containerPort: 587
+          name: submission
+        - containerPort: 143
+          name: imap
+        - containerPort: 993
+          name: imaps
+        envFrom:
+        - configMapRef:
+            name: mailu-config
+        env:
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mailu-secret-key
+              key: secret-key
+        volumeMounts:
+        - name: certs
+          mountPath: /certs
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: certs
+        emptyDir: {}
+
+# --- Front: Service interno (ClusterIP) para Ingress HTTP ---
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: front
+  namespace: mail
+spec:
+  selector:
+    app: mailu-front
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  - name: smtp
+    port: 25
+    targetPort: 25
+  - name: imap
+    port: 143
+    targetPort: 143
+
+# --- Front: LoadBalancer para portas de e-mail (TCP) ---
+# K3s ServiceLB expõe estas portas no IP do nó (100.77.46.69)
+# HAProxy na VPS encaminha TCP para estas portas via Tailscale
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailu-mail-lb
+  namespace: mail
+spec:
+  type: LoadBalancer
+  selector:
+    app: mailu-front
+  ports:
+  - name: smtp
+    port: 25
+    targetPort: 25
+    protocol: TCP
+  - name: smtps
+    port: 465
+    targetPort: 465
+    protocol: TCP
+  - name: submission
+    port: 587
+    targetPort: 587
+    protocol: TCP
+  - name: imaps
+    port: 993
+    targetPort: 993
+    protocol: TCP
+
+# ==========================================================
+# Postfix — MTA (envio e recebimento de e-mail SMTP)
+# ==========================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smtp
+  namespace: mail
+  labels:
+    app: mailu-smtp
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mailu-smtp
+  template:
+    metadata:
+      labels:
+        app: mailu-smtp
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: postfix
+        image: ghcr.io/mailu/postfix:2024.06
+        ports:
+        - containerPort: 25
+          name: smtp
+        - containerPort: 10025
+          name: smtp-internal
+        envFrom:
+        - configMapRef:
+            name: mailu-config
+        env:
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mailu-secret-key
+              key: secret-key
+        - name: RELAY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: resend-credentials
+              key: api-key
+        volumeMounts:
+        - name: mail-queue
+          mountPath: /queue
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+      volumes:
+      - name: mail-queue
+        hostPath:
+          path: /var/lib/mailu/queue
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smtp
+  namespace: mail
+spec:
+  selector:
+    app: mailu-smtp
+  ports:
+  - name: smtp
+    port: 25
+    targetPort: 25
+  - name: smtp-internal
+    port: 10025
+    targetPort: 10025
+
+# ==========================================================
+# Dovecot — IMAP server (acesso a mailboxes)
+# ==========================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: imap
+  namespace: mail
+  labels:
+    app: mailu-imap
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mailu-imap
+  template:
+    metadata:
+      labels:
+        app: mailu-imap
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: dovecot
+        image: ghcr.io/mailu/dovecot:2024.06
+        ports:
+        - containerPort: 143
+          name: imap
+        - containerPort: 993
+          name: imaps
+        - containerPort: 24
+          name: lmtp
+        - containerPort: 4190
+          name: sieve
+        envFrom:
+        - configMapRef:
+            name: mailu-config
+        env:
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mailu-secret-key
+              key: secret-key
+        volumeMounts:
+        - name: mail-storage
+          mountPath: /mail
+        - name: mailu-overrides
+          mountPath: /overrides
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      volumes:
+      - name: mail-storage
+        hostPath:
+          path: /var/lib/mailu/mail
+          type: DirectoryOrCreate
+      - name: mailu-overrides
+        hostPath:
+          path: /var/lib/mailu/overrides
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: imap
+  namespace: mail
+spec:
+  selector:
+    app: mailu-imap
+  ports:
+  - name: imap
+    port: 143
+    targetPort: 143
+  - name: imaps
+    port: 993
+    targetPort: 993
+  - name: lmtp
+    port: 24
+    targetPort: 24
+  - name: sieve
+    port: 4190
+    targetPort: 4190
+
+# ==========================================================
+# Rspamd — Anti-spam, DKIM signing, greylisting
+# ==========================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: antispam
+  namespace: mail
+  labels:
+    app: mailu-antispam
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mailu-antispam
+  template:
+    metadata:
+      labels:
+        app: mailu-antispam
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: rspamd
+        image: ghcr.io/mailu/rspamd:2024.06
+        ports:
+        - containerPort: 11332
+          name: milter
+        - containerPort: 11334
+          name: controller
+        envFrom:
+        - configMapRef:
+            name: mailu-config
+        env:
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mailu-secret-key
+              key: secret-key
+        volumeMounts:
+        - name: filter-data
+          mountPath: /var/lib/rspamd
+        - name: dkim-keys
+          mountPath: /dkim
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      volumes:
+      - name: filter-data
+        hostPath:
+          path: /var/lib/mailu/filter
+          type: DirectoryOrCreate
+      - name: dkim-keys
+        hostPath:
+          path: /var/lib/mailu/data/dkim
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: antispam
+  namespace: mail
+spec:
+  selector:
+    app: mailu-antispam
+  ports:
+  - name: milter
+    port: 11332
+    targetPort: 11332
+  - name: controller
+    port: 11334
+    targetPort: 11334
+
+# ==========================================================
+# Webmail (Roundcube) — Interface web para leitura de e-mails
+# ==========================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webmail
+  namespace: mail
+  labels:
+    app: mailu-webmail
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mailu-webmail
+  template:
+    metadata:
+      labels:
+        app: mailu-webmail
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: roundcube
+        image: ghcr.io/mailu/webmail:2024.06
+        ports:
+        - containerPort: 8080
+          name: http
+        envFrom:
+        - configMapRef:
+            name: mailu-config
+        env:
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mailu-secret-key
+              key: secret-key
+        volumeMounts:
+        - name: webmail-data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+      volumes:
+      - name: webmail-data
+        hostPath:
+          path: /var/lib/mailu/webmail
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webmail
+  namespace: mail
+spec:
+  selector:
+    app: mailu-webmail
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+# ==========================================================
+# Ingress — Acesso web (admin + webmail) via Traefik
+# Caddy (VPS) -> Traefik (K3s) -> Front (nginx) -> Admin/Webmail
+# ==========================================================
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mailu
+  namespace: mail
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: mail.acdgbrasil.com.br
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: front
+            port:
+              number: 80
