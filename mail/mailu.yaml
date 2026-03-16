@@ -199,13 +199,35 @@ spec:
       dnsPolicy: "None"
       dnsConfig:
         nameservers:
-        - "10.43.0.10"
         - "8.8.8.8"
         - "8.8.4.4"
+        - "10.43.0.10"
         searches:
         - "mail.svc.cluster.local"
         - "svc.cluster.local"
         - "cluster.local"
+      hostAliases:
+      - ip: "10.43.35.215"
+        hostnames:
+        - "redis"
+      - ip: "10.43.184.128"
+        hostnames:
+        - "antispam"
+      - ip: "10.43.108.33"
+        hostnames:
+        - "smtp"
+      - ip: "10.43.231.115"
+        hostnames:
+        - "imap"
+      - ip: "10.43.75.10"
+        hostnames:
+        - "front"
+      - ip: "10.43.146.65"
+        hostnames:
+        - "webmail"
+      - ip: "10.43.147.172"
+        hostnames:
+        - "admin"
       containers:
       - name: admin
         image: ghcr.io/mailu/admin:2024.06
