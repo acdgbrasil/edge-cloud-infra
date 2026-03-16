@@ -26,6 +26,14 @@ spec:
       - name: ghcr-credentials
       nodeSelector:
         hardware-type: high-performance
+      initContainers:
+      - name: wait-for-deps
+        image: busybox:1.36
+        command: ['sh', '-c',
+          'until nc -z postgres 5432 && nc -z zitadel 8080; do
+             echo "Waiting for postgres and zitadel...";
+             sleep 5;
+           done']
       containers:
       - name: social-care
         image: ghcr.io/acdgbrasil/svc-social-care:v0.5.4
