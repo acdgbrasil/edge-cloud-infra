@@ -98,6 +98,15 @@ data:
     [store."postgresql".pool]
     max-connections = 10
 
+    # --- Directory & Lookup Providers ---
+    [directory."postgresql"]
+    type = "sql"
+    store = "postgresql"
+
+    [lookup."postgresql"]
+    type = "sql"
+    store = "postgresql"
+
     [storage]
     data = "postgresql"
     blob = "postgresql"
