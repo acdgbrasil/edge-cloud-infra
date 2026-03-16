@@ -4,6 +4,7 @@ metadata:
   name: tcc-site
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: tcc-site
@@ -17,6 +18,13 @@ spec:
         image: nginx:alpine
         ports:
         - containerPort: 80
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
         volumeMounts:
         - name: html
           mountPath: /usr/share/nginx/html

@@ -58,20 +58,7 @@ spec:
       secretKeyName: allowed-ids
 
 ---
-# 2. PersistentVolumeClaim — PostgreSQL HML (menor que produção)
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: postgres-hml-pvc
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 2Gi
-
----
-# 3. StatefulSet — PostgreSQL HML (instância isolada)
+# 2. StatefulSet — PostgreSQL HML (instância isolada)
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -146,6 +133,7 @@ metadata:
     app: social-care-hml
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: social-care-hml
@@ -160,7 +148,7 @@ spec:
         hardware-type: high-performance
       containers:
       - name: social-care
-        image: ghcr.io/acdgbrasil/svc-social-care:latest
+        image: ghcr.io/acdgbrasil/svc-social-care:v0.5.4
         ports:
         - containerPort: 3000
         env:
