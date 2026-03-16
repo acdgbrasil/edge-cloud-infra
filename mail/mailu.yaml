@@ -82,7 +82,7 @@ data:
   # --- DNS ---
   # CoreDNS do K3s não faz validação DNSSEC.
   # Seguro em K8s porque o tráfego DNS é interno ao cluster.
-  SKIP_DNSSEC_CHECK: "true"
+  SKIP_DNSSEC_CHECK: "1"
 
   # --- Logging ---
   LOG_LEVEL: "WARNING"
@@ -196,6 +196,11 @@ spec:
     spec:
       nodeSelector:
         hardware-type: high-performance
+      dnsPolicy: "None"
+      dnsConfig:
+        nameservers:
+        - "8.8.8.8"
+        - "8.8.4.4"
       containers:
       - name: admin
         image: ghcr.io/mailu/admin:2024.06
