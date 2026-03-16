@@ -200,12 +200,7 @@ spec:
       dnsConfig:
         nameservers:
         - "8.8.8.8"
-        - "8.8.4.4"
-        - "10.43.0.10"
-        searches:
-        - "mail.svc.cluster.local"
-        - "svc.cluster.local"
-        - "cluster.local"
+        - "1.1.1.1"
       hostAliases:
       - ip: "10.43.35.215"
         hostnames:
@@ -239,6 +234,10 @@ spec:
         - configMapRef:
             name: mailu-config
         env:
+        - name: I_KNOW_MY_SETUP_DOESNT_FIT_REQUIREMENTS_AND_WONT_FILE_ISSUES_WITHOUT_PATCHES
+          value: "true"
+        - name: MAILU_HELM_CHART
+          value: "true"
         - name: SECRET_KEY
           valueFrom:
             secretKeyRef:
