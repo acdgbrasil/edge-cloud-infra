@@ -98,21 +98,12 @@ data:
     [store."postgresql".pool]
     max-connections = 10
 
-    # --- Directory & Lookup Providers ---
-    [directory."directory_db"]
-    type = "sql"
-    store = "postgresql"
-
-    [lookup."lookup_db"]
-    type = "sql"
-    store = "postgresql"
-
     [storage]
     data = "postgresql"
     blob = "postgresql"
     fts = "postgresql"
-    lookup = "lookup_db"
-    directory = "directory_db"
+    lookup = "postgresql"
+    directory = "postgresql"
 
     # --- Admin fallback ---
     [authentication.fallback-admin]
