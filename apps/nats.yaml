@@ -1,3 +1,8 @@
+# -----------------------------------------------------------
+# NATS JetStream — Message Broker
+# Streams: SOCIAL_CARE_EVENTS (social-care.events.>)
+# -----------------------------------------------------------
+
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -18,7 +23,7 @@ spec:
       containers:
       - name: nats
         image: nats:2.10-alpine
-        args: ["-js", "-sd", "/data"] # Ativando JetStream e definindo diretório de dados
+        args: ["-js", "-sd", "/data"]
         ports:
         - containerPort: 4222
           name: client
@@ -38,7 +43,7 @@ spec:
   - metadata:
       name: nats-data
     spec:
-      accessModes: [ "ReadWriteOnce" ]
+      accessModes: ["ReadWriteOnce"]
       resources:
         requests:
           storage: 5Gi
@@ -57,3 +62,41 @@ spec:
   - name: monitor
     port: 8222
     targetPort: 8222
+
+---
+# Job para criar o stream JetStream SOCIAL_CARE_EVENTS.
+# Idempotente: se o stream já existe, o comando falha silenciosamente.
+# Executar manualmente: kubectl create job --from=job/nats-stream-setup nats-stream-setup-run
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nats-stream-setup
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: nats-cli
+        image: natsio/nats-box:0.14.5
+        command:
+        - sh
+        - -c
+        - |
+          nats -s nats://nats:4222 stream add SOCIAL_CARE_EVENTS \
+            --subjects="social-care.events.>" \
+            --retention=limits \
+            --max-age=720h \
+            --storage=file \
+            --replicas=1 \
+            --discard=old \
+            --max-msgs=-1 \
+            --max-bytes=-1 \
+            --max-msg-size=-1 \
+            --dupe-window=2m \
+            --no-allow-rollup \
+            --deny-delete \
+            --deny-purge \
+            --defaults 2>/dev/null || echo "Stream already exists or created successfully"
+      restartPolicy: Never

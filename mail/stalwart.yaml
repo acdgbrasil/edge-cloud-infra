@@ -85,7 +85,7 @@ data:
     # --- Storage (PostgreSQL) ---
     [store."postgresql"]
     type = "postgresql"
-    host = "postgres.default.svc.cluster.local"
+    host = "postgres-stalwart.mail.svc.cluster.local"
     port = 5432
     database = "stalwart"
     user = "stalwart"
