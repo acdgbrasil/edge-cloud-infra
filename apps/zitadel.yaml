@@ -24,7 +24,7 @@ spec:
 
     zitadel:
       masterkeySecretName: zitadel-masterkey
-      configSecretName: zitadel-db-credentials
+      configSecretName: postgres-zitadel-credentials
       configmapConfig:
         ExternalDomain: "auth.acdgbrasil.com.br"
         ExternalSecure: true
@@ -33,7 +33,7 @@ spec:
           Enabled: false
         Database:
           Postgres:
-            Host: "postgres"
+            Host: "postgres-zitadel"
             Port: 5432
             Database: "zitadel"
             User:
@@ -41,18 +41,9 @@ spec:
               SSL:
                 Mode: "disable"
             Admin:
-              Username: "postgres"
+              Username: "zitadel"
               SSL:
                 Mode: "disable"
-        FirstInstance:
-          Org:
-            Human:
-              UserName: "admin"
-              FirstName: "ACDG"
-              LastName: "Admin"
-              Email: "admin@acdgbrasil.com.br"
-              Password: "AcdgAdmin2024!"
-              PasswordChangeRequired: true
 
     ingress:
       enabled: true
