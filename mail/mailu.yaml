@@ -231,6 +231,7 @@ spec:
       containers:
       - name: admin
         image: ghcr.io/mailu/admin:2024.06
+        command: ["sh", "-c", "touch /.dockerenv && exec python3 /start.py"]
         ports:
         - containerPort: 8080
           name: http
