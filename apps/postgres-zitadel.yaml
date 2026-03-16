@@ -1,0 +1,91 @@
+# -----------------------------------------------------------
+# PostgreSQL dedicado para o Zitadel (Identity Provider)
+# Isolamento database-per-service: elimina blast radius do
+# banco compartilhado.
+#
+# PRÉ-REQUISITO MANUAL:
+#   Criar secret no Bitwarden SM com a senha do novo postgres
+#   e substituir o bwSecretId abaixo.
+# -----------------------------------------------------------
+
+---
+# 1. BitwardenSecret — Credenciais do PostgreSQL Zitadel
+apiVersion: k8s.bitwarden.com/v1
+kind: BitwardenSecret
+metadata:
+  name: postgres-zitadel-bitwardensecret
+spec:
+  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
+  secretName: postgres-zitadel-credentials
+  authToken:
+    secretName: bw-auth-token
+    secretKey: token
+  map:
+    - bwSecretId: "5d5d18e2-1f9d-429d-b9f2-b40f011341b0"
+      secretKeyName: password
+
+---
+# 2. StatefulSet — PostgreSQL Zitadel
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-zitadel
+spec:
+  serviceName: "postgres-zitadel"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-zitadel
+  template:
+    metadata:
+      labels:
+        app: postgres-zitadel
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: postgres
+        image: postgres:15
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-zitadel-credentials
+              key: password
+        - name: POSTGRES_USER
+          value: zitadel
+        - name: POSTGRES_DB
+          value: zitadel
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        volumeMounts:
+        - name: postgres-zitadel-storage
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-zitadel-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi
+
+---
+# 3. Service — PostgreSQL Zitadel
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-zitadel
+spec:
+  selector:
+    app: postgres-zitadel
+  ports:
+  - port: 5432
+    targetPort: 5432
