@@ -1,22 +1,22 @@
-# Setup do Ambiente de Homologação (social-care-hml)
+# Setup do Ambiente de Homologacao (HML)
 
-Roteiro passo a passo para provisionar o ambiente de homologação para testes de integração.
+Roteiro para provisionar o ambiente de homologacao do social-care para testes de integracao.
 
-## Pré-requisitos
+## Pre-requisitos
 
-- Acesso admin ao Zitadel (auth.acdgbrasil.com.br)
-- Acesso ao Bitwarden Secret Manager (organização ACDG)
-- Acesso SSH ao VPS Gateway (Caddy)
-- Acesso ao cluster K3s (kubectl)
+- Acesso admin ao Zitadel (`auth.acdgbrasil.com.br`)
+- Acesso ao Bitwarden Secret Manager (organizacao ACDG)
+- Acesso SSH ao VPS Gateway
+- Acesso ao cluster K3s (`kubectl`)
 
 ---
 
-## 1. Zitadel — Service Account para Testes
+## 1. Zitadel — Service Account
 
 ### 1.1 Criar Machine User
 
-1. Acessar https://auth.acdgbrasil.com.br/ui/console
-2. Ir em **Users → Service Users → New**
+1. Acessar `https://auth.acdgbrasil.com.br/ui/console`
+2. **Users** > **Service Users** > **New**
 3. Configurar:
    - **Username:** `svc-social-care-integration-tests`
    - **Name:** Social Care Integration Tests
@@ -24,17 +24,17 @@ Roteiro passo a passo para provisionar o ambiente de homologação para testes d
 
 ### 1.2 Criar Application (API)
 
-1. Ir em **Projects** → selecionar o projeto do social-care (ou criar um)
-2. **New Application:**
+1. **Projects** > selecionar projeto > **New Application**
+2. Configurar:
    - **Name:** `social-care-integration-tests`
    - **Type:** API
-   - **Auth Method:** `CLIENT_SECRET_BASIC` (client_credentials)
-3. Anotar o `client_id` e `client_secret` gerados
+   - **Auth Method:** `CLIENT_SECRET_BASIC`
+3. Anotar `client_id` e `client_secret`
 
 ### 1.3 Atribuir Role
 
-1. No projeto, ir em **Authorizations → New**
-2. Selecionar o user `svc-social-care-integration-tests`
+1. No projeto, **Authorizations** > **New**
+2. Selecionar `svc-social-care-integration-tests`
 3. Atribuir role: `social_worker`
 
 ### 1.4 Testar Token
@@ -46,90 +46,72 @@ curl -X POST https://auth.acdgbrasil.com.br/oauth/v2/token \
   -d "scope=openid profile"
 ```
 
-Deve retornar um `access_token` JWT válido.
-
 ---
 
-## 2. Bitwarden — Secret para PostgreSQL HML
+## 2. Bitwarden — Secret do PostgreSQL
 
 ### 2.1 Criar Secret
 
-1. No Bitwarden Secret Manager, criar novo secret:
+1. No Bitwarden SM, criar secret:
    - **Name:** `SC_HML_DB_PASSWORD`
-   - **Value:** gerar senha segura (mínimo 32 chars)
-   - **Project:** ACDG (ou criar sub-projeto HML)
-2. Copiar o **UUID** do secret criado
+   - **Value:** senha segura (minimo 32 chars)
+2. Copiar o UUID
 
 ### 2.2 Atualizar Manifest
 
-No arquivo `apps/social-care-hml.yaml`, substituir:
-```yaml
-bwSecretId: "SUBSTITUIR_PELO_ID_DO_SECRET_HML"
-```
-pelo UUID real do secret criado no passo anterior.
+Em `apps/social-care-hml.yaml`, substituir o `bwSecretId` pelo UUID real.
 
 ---
 
-## 3. Caddy — Reverse Proxy (VPS Gateway)
+## 3. Gateway (VPS)
 
-Adicionar o bloco abaixo no Caddyfile do VPS Gateway:
+Adicionar no Caddyfile:
 
-```caddyfile
+```caddy
 social-care-hml.acdgbrasil.com.br {
-    reverse_proxy <TAILSCALE_IP_XEON>:80 {
+    reverse_proxy 100.77.46.69:80 {
         header_up Host {host}
     }
 }
 ```
 
-> O Caddy gera automaticamente o certificado TLS via Let's Encrypt.
-
-Recarregar: `sudo systemctl reload caddy`
+```bash
+sudo systemctl reload caddy
+```
 
 ---
 
 ## 4. DNS
 
-Criar registro A no provedor DNS:
+Criar registro A (se nao coberto pelo wildcard):
 
 ```
-social-care-hml.acdgbrasil.com.br → <IP_PUBLICO_VPS>
+social-care-hml.acdgbrasil.com.br → 201.23.14.199
 ```
-
-(Mesmo IP público do VPS Gateway usado pelos outros subdomínios)
 
 ---
 
 ## 5. Deploy via FluxCD
 
-O manifest `apps/social-care-hml.yaml` já está no repositório. O Flux sincroniza automaticamente a cada 1 minuto.
-
-Após o commit/merge em `main` do `edge-cloud-infra`:
+O manifest `apps/social-care-hml.yaml` ja esta no repositorio. Flux sincroniza automaticamente.
 
 ```bash
-# Verificar se o Flux sincronizou
-flux get kustomizations
-
-# Verificar pods
-kubectl get pods -l app=social-care-hml
-kubectl get pods -l app=postgres-hml
-
-# Verificar ingress
-kubectl get ingress social-care-hml-ingress
-
-# Logs do serviço
-kubectl logs -l app=social-care-hml -f
+flux get kustomizations                        # Status do sync
+kubectl get pods -l app=social-care-hml        # Pods do servico
+kubectl get pods -l app=postgres-hml           # Pod do banco
+kubectl get ingress social-care-hml-ingress    # Ingress
+kubectl logs -l app=social-care-hml -f         # Logs
 ```
 
 ---
 
-## 6. Validação
+## 6. Validacao
 
 ```bash
 # Health check
 curl https://social-care-hml.acdgbrasil.com.br/health
 
-# Token via client_credentials
+# Obter token
 TOKEN=$(curl -s -X POST https://auth.acdgbrasil.com.br/oauth/v2/token \
   -u "<client_id>:<client_secret>" \
   -d "grant_type=client_credentials" \
@@ -138,30 +120,29 @@ TOKEN=$(curl -s -X POST https://auth.acdgbrasil.com.br/oauth/v2/token \
 # Testar endpoint autenticado
 curl -H "Authorization: Bearer $TOKEN" \
      -H "X-Actor-Id: svc-integration-tests" \
-     https://social-care-hml.acdgbrasil.com.br/v1/patients
+     https://social-care-hml.acdgbrasil.com.br/api/v1/dominios/dominio_parentesco
 ```
 
 ---
 
 ## 7. GitHub Actions — Secrets
 
-Adicionar no repositório `acdg` (Settings → Secrets → Actions):
+Adicionar no repositorio (Settings > Secrets > Actions):
 
 | Secret | Valor |
 |--------|-------|
 | `SOCIAL_CARE_HML_URL` | `https://social-care-hml.acdgbrasil.com.br` |
-| `ZITADEL_HML_CLIENT_ID` | `<client_id do service account>` |
-| `ZITADEL_HML_CLIENT_SECRET` | `<client_secret do service account>` |
+| `ZITADEL_HML_CLIENT_ID` | `<client_id>` |
+| `ZITADEL_HML_CLIENT_SECRET` | `<client_secret>` |
 | `ZITADEL_TOKEN_URL` | `https://auth.acdgbrasil.com.br/oauth/v2/token` |
 
 ---
 
-## 8. CronJob de Reset (Automático)
+## 8. Reset Automatico
 
-O banco HML é resetado automaticamente todo **domingo às 03:00 UTC** via CronJob (`social-care-hml-db-reset`). As migrations rodam automaticamente quando o serviço reinicia.
+O banco HML e resetado todo **domingo as 03:00 UTC** via CronJob. As migrations rodam automaticamente no restart do servico.
 
-Para reset manual:
-
+Reset manual:
 ```bash
 kubectl create job --from=cronjob/social-care-hml-db-reset manual-reset
 ```
@@ -170,17 +151,14 @@ kubectl create job --from=cronjob/social-care-hml-db-reset manual-reset
 
 ## Checklist
 
-- [ ] Criar Machine User no Zitadel (`svc-social-care-integration-tests`)
-- [ ] Criar Application API com client_credentials
-- [ ] Atribuir role `social_worker` ao service account
-- [ ] Testar client_credentials grant → JWT válido
-- [ ] Criar secret `SC_HML_DB_PASSWORD` no Bitwarden
-- [ ] Atualizar `bwSecretId` em `social-care-hml.yaml`
-- [ ] Adicionar entrada DNS `social-care-hml.acdgbrasil.com.br`
-- [ ] Adicionar bloco no Caddyfile do VPS Gateway
-- [ ] Commit + push em `edge-cloud-infra` (main)
-- [ ] Verificar Flux sync + pods running
-- [ ] `GET /health` → 200 OK
-- [ ] Token endpoint → JWT válido com role `social_worker`
-- [ ] Adicionar secrets no GitHub Actions
-- [ ] Entregar ao frontend: URL + client_id + client_secret + token_url
+- [ ] Machine User no Zitadel (`svc-social-care-integration-tests`)
+- [ ] Application API com client_credentials
+- [ ] Role `social_worker` atribuida
+- [ ] Token endpoint retorna JWT valido
+- [ ] Secret `SC_HML_DB_PASSWORD` no Bitwarden
+- [ ] `bwSecretId` atualizado em `social-care-hml.yaml`
+- [ ] DNS `social-care-hml.acdgbrasil.com.br`
+- [ ] Caddyfile atualizado no VPS
+- [ ] Flux sync + pods running
+- [ ] `GET /health` retorna 200
+- [ ] Secrets configurados no GitHub Actions

@@ -1,23 +1,63 @@
-# Gerenciando o Portão de Entrada (VPS) 🌐
+# Gateway (VPS)
 
-A VPS funciona como o Gateway (Ingress Público).
+A VPS e o unico ponto de entrada publico. Recebe trafego da internet e encaminha para o cluster K3s via Tailscale.
 
-## 1. Configurar Novo Domínio
+**IP Publico:** `201.23.14.199`
+**IP Tailscale do Xeon:** `100.77.46.69`
 
-### Estratégia Wildcard (Atalho)
-Para facilitar sua vida, configure um registro **A** com o nome `*` (asterisco) apontando para o IP da VPS no seu painel DNS. Isso fará com que qualquer subdomínio (`qualquercoisa.acdgbrasil.com.br`) chegue até o nosso Gateway.
-1. Aponte o DNS (Registro A) do seu domínio para o IP Público da VPS (`201.23.14.199`).
-2. Acesse a VPS via SSH e edite o Caddyfile:
+## Como funciona
+
+| Componente | Funcao | Portas |
+|------------|--------|--------|
+| **Caddy** | Reverse proxy HTTPS (HTTP/S) | 80, 443 |
+| **HAProxy** | TCP proxy (protocolos de e-mail) | 25, 465, 587, 993 |
+
+O Caddy cuida de HTTPS com certificados Let's Encrypt automaticos. O HAProxy lida com portas TCP que o Caddy nao suporta (mail).
+
+## Adicionar novo subdominio
+
+### Passo 1: DNS
+O wildcard `*.acdgbrasil.com.br` ja aponta para `201.23.14.199`. Para subdominos especificos (necessarios para MX, por exemplo), criar registro A no painel DNS (Umbler).
+
+### Passo 2: Caddyfile
+SSH na VPS e editar o Caddyfile:
 ```bash
 sudo nano /etc/caddy/Caddyfile
 ```
-3. Adicione o novo bloco:
+
+Adicionar o bloco:
 ```caddy
-seu-app.acdgbrasil.com.br {
+meu-app.acdgbrasil.com.br {
     reverse_proxy 100.77.46.69:80
 }
 ```
-4. Reinicie o Caddy: `sudo systemctl reload caddy`.
 
-## 2. SSL/HTTPS
-O Caddy cuidará de tudo automaticamente. Certifique-se apenas de que as portas 80 e 443 estão abertas no firewall da VPS.
+Recarregar:
+```bash
+sudo systemctl reload caddy
+```
+
+O Caddy gera o certificado TLS automaticamente na primeira requisicao.
+
+### Passo 3: Ingress no K3s
+Criar o Ingress no manifest da aplicacao (em `/apps/`) para que o Traefik roteie pelo header `Host`.
+
+## Subdominios ativos
+
+| Subdominio | Destino | Servico |
+|------------|---------|---------|
+| `social-care.acdgbrasil.com.br` | Caddy → Traefik | social-care (prod) |
+| `social-care-hml.acdgbrasil.com.br` | Caddy → Traefik | social-care (HML) |
+| `auth.acdgbrasil.com.br` | Caddy → Traefik | Zitadel |
+| `mail.acdgbrasil.com.br` | Caddy → Traefik | Stalwart (admin web) |
+| `tcc.acdgbrasil.com.br` | Caddy → Traefik | tcc-site |
+| `cloud.acdgbrasil.com.br` | Caddy → Traefik | hello-world (teste) |
+
+## Verificar status
+
+```bash
+# Na VPS:
+sudo systemctl status caddy
+sudo systemctl status haproxy
+ss -tlnp | grep -E ':(80|443|25|465|587|993)\b'
+```
