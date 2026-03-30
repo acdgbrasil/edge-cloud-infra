@@ -245,7 +245,7 @@ spec:
               number: 80
 
 ---
-# 8. CronJob — Reset semanal do banco HML (domingos 03:00 UTC)
+# 8. CronJob — Reset diario do banco HML (03:00 UTC)
 # Remove todos os dados e deixa o banco limpo para testes.
 # As migrations rodam automaticamente quando o serviço sobe.
 apiVersion: batch/v1
@@ -253,7 +253,7 @@ kind: CronJob
 metadata:
   name: social-care-hml-db-reset
 spec:
-  schedule: "0 3 * * 0"
+  schedule: "0 3 * * *"
   jobTemplate:
     spec:
       template:
