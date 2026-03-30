@@ -28,8 +28,8 @@ graph TD
         Traefik[Traefik Ingress Controller]
 
         subgraph Apps[Namespace: default]
-            SC[social-care v0.6.0]
-            SC_HML[social-care-hml v0.5.5]
+            SC[social-care v0.7.0]
+            SC_HML[social-care-hml v0.7.0]
             PG_Main[(PostgreSQL - social_care)]
             PG_Zitadel[(PostgreSQL - zitadel)]
             PG_HML[(PostgreSQL - social_care_hml)]
@@ -80,8 +80,8 @@ graph TD
 
 | Servico | Dominio | Versao | Descricao |
 |---------|---------|--------|-----------|
-| social-care | `social-care.acdgbrasil.com.br` | v0.6.0 | API de assistencia social (prod) |
-| social-care-hml | `social-care-hml.acdgbrasil.com.br` | v0.5.5 | Ambiente de homologacao |
+| social-care | `social-care.acdgbrasil.com.br` | v0.7.0 | API de assistencia social (prod) |
+| social-care-hml | `social-care-hml.acdgbrasil.com.br` | v0.7.0 | Ambiente de homologacao |
 | Zitadel | `auth.acdgbrasil.com.br` | Helm chart | Identity Provider OIDC |
 | Stalwart | `mail.acdgbrasil.com.br` | v0.15.5 | Servidor de e-mail |
 | tcc-site | `tcc.acdgbrasil.com.br` | — | Conteudo academico (static) |

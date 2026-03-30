@@ -206,7 +206,7 @@ Producao nao tem secrets de introspection nem allowlist.
 |---------|----------|-------------|
 | URL | `social-care.acdgbrasil.com.br` | `social-care-hml.acdgbrasil.com.br` |
 | Banco | `social_care` (PostgreSQL dedicado) | `social_care_hml` (PostgreSQL dedicado) |
-| Imagem | `ghcr.io/.../svc-social-care:v0.6.0` | `ghcr.io/.../svc-social-care:v0.5.5` |
+| Imagem | `ghcr.io/.../svc-social-care:v0.7.0` | `ghcr.io/.../svc-social-care:v0.7.0` |
 | Introspection | Desabilitado | Habilitado + allowlist |
 | Dados | Reais (pacientes) | Ficticios (testes) |
 | Reset de banco | Nunca | Automatico (domingos 03:00 UTC) |
