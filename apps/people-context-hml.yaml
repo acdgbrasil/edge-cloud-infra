@@ -1,0 +1,233 @@
+# -----------------------------------------------------------
+# people-context (HML) — Staging Environment
+# Image: ghcr.io/acdgbrasil/people-context (same as prod)
+# Purpose: end-to-end integration testing
+# -----------------------------------------------------------
+
+---
+# 1. BitwardenSecret — PostgreSQL HML credentials
+apiVersion: k8s.bitwarden.com/v1
+kind: BitwardenSecret
+metadata:
+  name: postgres-people-hml-bitwardensecret
+spec:
+  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
+  secretName: postgres-people-hml-credentials
+  authToken:
+    secretName: bw-auth-token
+    secretKey: token
+  map:
+    - bwSecretId: "d148a9ae-135d-4fd3-ba83-b3f00055eca5"
+      secretKeyName: password
+
+---
+# 2. StatefulSet — PostgreSQL HML (isolated instance)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-people-hml
+spec:
+  serviceName: "postgres-people-hml"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-people-hml
+  template:
+    metadata:
+      labels:
+        app: postgres-people-hml
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: postgres
+        image: postgres:15
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-people-hml-credentials
+              key: password
+        - name: POSTGRES_DB
+          value: people_hml
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+        volumeMounts:
+        - name: postgres-people-hml-storage
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-people-hml-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 2Gi
+
+---
+# 3. Service — PostgreSQL HML
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-people-hml
+spec:
+  selector:
+    app: postgres-people-hml
+  ports:
+  - port: 5432
+    targetPort: 5432
+
+---
+# 4. Deployment — people-context HML
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: people-context-hml
+  labels:
+    app: people-context-hml
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: people-context-hml
+  template:
+    metadata:
+      labels:
+        app: people-context-hml
+    spec:
+      imagePullSecrets:
+      - name: ghcr-credentials
+      nodeSelector:
+        hardware-type: high-performance
+      initContainers:
+      - name: wait-for-deps
+        image: busybox:1.36
+        command: ['sh', '-c',
+          'until nc -z postgres-people-hml 5432; do
+             echo "Waiting for postgres-people-hml...";
+             sleep 5;
+           done']
+      containers:
+      - name: people-context
+        image: ghcr.io/acdgbrasil/people-context:v0.1.0
+        ports:
+        - containerPort: 3000
+        env:
+        - name: PORT
+          value: "3000"
+        - name: DB_HOST
+          value: postgres-people-hml
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_USER
+          value: postgres
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-people-hml-credentials
+              key: password
+        - name: DB_NAME
+          value: people_hml
+        - name: JWKS_URL
+          value: "https://auth.acdgbrasil.com.br/oauth/v2/keys"
+        - name: ZITADEL_ISSUER
+          value: "https://auth.acdgbrasil.com.br"
+        - name: NATS_URL
+          value: "nats://nats.default.svc.cluster.local:4222"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+
+---
+# 5. Service — people-context HML
+apiVersion: v1
+kind: Service
+metadata:
+  name: people-context-hml
+spec:
+  selector:
+    app: people-context-hml
+  ports:
+  - port: 80
+    targetPort: 3000
+
+---
+# 6. Ingress — people-context HML (Traefik)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: people-context-hml-ingress
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: people-hml.acdgbrasil.com.br
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: people-context-hml
+            port:
+              number: 80
+
+---
+# 7. CronJob — Weekly DB reset (Sundays 03:00 UTC)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: people-context-hml-db-reset
+spec:
+  schedule: "0 3 * * 0"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          nodeSelector:
+            hardware-type: high-performance
+          containers:
+          - name: db-reset
+            image: postgres:15
+            command:
+            - sh
+            - -c
+            - |
+              PGPASSWORD="$DB_PASSWORD" psql -h postgres-people-hml -U postgres -d template1 -c "
+                SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'people_hml' AND pid <> pg_backend_pid();
+                DROP DATABASE IF EXISTS people_hml;
+                CREATE DATABASE people_hml OWNER postgres;
+              "
+            env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-people-hml-credentials
+                  key: password
+          restartPolicy: OnFailure
