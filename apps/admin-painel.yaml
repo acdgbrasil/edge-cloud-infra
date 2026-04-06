@@ -1,6 +1,6 @@
 # -----------------------------------------------------------
 # Admin Panel — Painel de gestão de usuários ACDG
-# SolidJS SPA + Zitadel Management API (direct)
+# Elysia + HTMX + Zitadel Management API (server-side auth)
 # Imagem: ghcr.io/acdgbrasil/admin-painel
 # -----------------------------------------------------------
 
@@ -29,7 +29,7 @@ spec:
         hardware-type: high-performance
       containers:
       - name: admin-painel
-        image: ghcr.io/acdgbrasil/admin-painel:v0.1.0
+        image: ghcr.io/acdgbrasil/admin-painel:v0.2.0
         ports:
         - containerPort: 3000
         env:
@@ -37,6 +37,25 @@ spec:
           value: "3000"
         - name: HOST
           value: "0.0.0.0"
+        - name: BASE_URL
+          value: "https://admin.acdgbrasil.com.br"
+        - name: OIDC_ISSUER
+          value: "https://auth.acdgbrasil.com.br"
+        - name: OIDC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: admin-oidc-credentials
+              key: client-id
+        - name: OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: admin-oidc-credentials
+              key: client-secret
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: admin-session-secret
+              key: secret
         readinessProbe:
           httpGet:
             path: /login
