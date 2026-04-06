@@ -1,45 +1,74 @@
 # -----------------------------------------------------------
-# Conecta Raros — Web Frontend + BFF (PROD)
+# Conecta Raros — Web Frontend + BFF (HML / Staging)
 #
-# Two Deployments behind conecta.acdgbrasil.com.br:
-#   /api/*    → social-care-bff (Dart AOT, shelf) — prefix stripped
-#   /auth/*   → social-care-bff (no strip)
-#   /health/* → social-care-bff (no strip)
-#   /*        → conecta-web (nginx, Flutter WASM)
+# Two Deployments behind conecta-hml.acdgbrasil.com.br:
+#   /api/*    → social-care-bff-hml (prefix stripped)
+#   /auth/*   → social-care-bff-hml (no strip)
+#   /health/* → social-care-bff-hml (no strip)
+#   /*        → conecta-web-hml (nginx, Flutter WASM)
 #
-# Same-origin ensures SameSite=Strict cookies for session auth.
-# TLS terminated by Caddy on VPS. Traefik receives HTTP via Tailscale.
-#
-# Images:
-#   ghcr.io/acdgbrasil/conecta-web
-#   ghcr.io/acdgbrasil/social-care-bff
+# Uses staging secrets from Bitwarden Secret Manager.
 # -----------------------------------------------------------
 
 ---
-# 1. Deployment — conecta-web (Flutter WASM + nginx)
+# 1. BitwardenSecret — BFF OIDC credentials (staging)
+apiVersion: k8s.bitwarden.com/v1
+kind: BitwardenSecret
+metadata:
+  name: bff-oidc-credentials-hml-bitwardensecret
+spec:
+  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
+  secretName: bff-oidc-credentials-hml
+  authToken:
+    secretName: bw-auth-token
+    secretKey: token
+  map:
+    - bwSecretId: "REPLACE_WITH_BFF_OIDC_CLIENT_ID_STAGING_SECRET_ID"
+      secretKeyName: client-id
+    - bwSecretId: "REPLACE_WITH_BFF_OIDC_CLIENT_SECRET_STAGING_SECRET_ID"
+      secretKeyName: client-secret
+
+---
+# 2. BitwardenSecret — BFF session secret (staging)
+apiVersion: k8s.bitwarden.com/v1
+kind: BitwardenSecret
+metadata:
+  name: bff-session-secret-hml-bitwardensecret
+spec:
+  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
+  secretName: bff-session-secret-hml
+  authToken:
+    secretName: bw-auth-token
+    secretKey: token
+  map:
+    - bwSecretId: "REPLACE_WITH_BFF_SESSION_SECRET_STAGING_SECRET_ID"
+      secretKeyName: secret
+
+---
+# 3. Deployment — conecta-web-hml (Flutter WASM + nginx)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: conecta-web
+  name: conecta-web-hml
   labels:
-    app: conecta-web
+    app: conecta-web-hml
 spec:
   replicas: 1
   revisionHistoryLimit: 3
   selector:
     matchLabels:
-      app: conecta-web
+      app: conecta-web-hml
   template:
     metadata:
       labels:
-        app: conecta-web
+        app: conecta-web-hml
     spec:
       imagePullSecrets:
       - name: ghcr-credentials
       nodeSelector:
         hardware-type: high-performance
       containers:
-      - name: conecta-web
+      - name: conecta-web-hml
         image: ghcr.io/acdgbrasil/conecta-web:v0.1.0
         ports:
         - containerPort: 80
@@ -64,43 +93,43 @@ spec:
             cpu: "100m"
 
 ---
-# 2. Service — conecta-web
+# 4. Service — conecta-web-hml
 apiVersion: v1
 kind: Service
 metadata:
-  name: conecta-web
+  name: conecta-web-hml
 spec:
   selector:
-    app: conecta-web
+    app: conecta-web-hml
   ports:
   - port: 80
     targetPort: 80
 
 ---
-# 3. Deployment — social-care-bff (Dart AOT + shelf)
+# 5. Deployment — social-care-bff-hml (Dart AOT + shelf)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: social-care-bff
+  name: social-care-bff-hml
   labels:
-    app: social-care-bff
+    app: social-care-bff-hml
 spec:
   replicas: 1
   revisionHistoryLimit: 3
   selector:
     matchLabels:
-      app: social-care-bff
+      app: social-care-bff-hml
   template:
     metadata:
       labels:
-        app: social-care-bff
+        app: social-care-bff-hml
     spec:
       imagePullSecrets:
       - name: ghcr-credentials
       nodeSelector:
         hardware-type: high-performance
       containers:
-      - name: social-care-bff
+      - name: social-care-bff-hml
         image: ghcr.io/acdgbrasil/social-care-bff:v0.1.0
         ports:
         - containerPort: 8081
@@ -110,25 +139,25 @@ spec:
         - name: HOST
           value: "0.0.0.0"
         - name: API_BASE_URL
-          value: "http://social-care.default.svc.cluster.local"
+          value: "http://social-care-hml.default.svc.cluster.local"
         - name: OIDC_ISSUER
           value: "https://auth.acdgbrasil.com.br"
         - name: OIDC_CLIENT_ID
           valueFrom:
             secretKeyRef:
-              name: bff-oidc-credentials
+              name: bff-oidc-credentials-hml
               key: client-id
         - name: OIDC_CLIENT_SECRET
           valueFrom:
             secretKeyRef:
-              name: bff-oidc-credentials
+              name: bff-oidc-credentials-hml
               key: client-secret
         - name: OIDC_REDIRECT_URI
-          value: "https://conecta.acdgbrasil.com.br/auth/callback"
+          value: "https://conecta-hml.acdgbrasil.com.br/auth/callback"
         - name: SESSION_SECRET
           valueFrom:
             secretKeyRef:
-              name: bff-session-secret
+              name: bff-session-secret-hml
               key: secret
         - name: SESSION_TTL_MINUTES
           value: "60"
@@ -153,65 +182,65 @@ spec:
             cpu: "250m"
 
 ---
-# 4. Service — social-care-bff
+# 6. Service — social-care-bff-hml
 apiVersion: v1
 kind: Service
 metadata:
-  name: social-care-bff
+  name: social-care-bff-hml
 spec:
   selector:
-    app: social-care-bff
+    app: social-care-bff-hml
   ports:
   - port: 80
     targetPort: 8081
 
 ---
-# 5. Middleware — strip /api prefix before reaching BFF
+# 7. Middleware — strip /api prefix (HML)
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
-  name: strip-api-prefix
+  name: strip-api-prefix-hml
 spec:
   stripPrefix:
     prefixes:
       - /api
 
 ---
-# 6. IngressRoute — single domain, path routing
+# 8. IngressRoute — conecta-hml.acdgbrasil.com.br
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: conecta-web-ingress
+  name: conecta-web-hml-ingress
 spec:
   entryPoints:
     - web
   routes:
-    # BFF — /api/* (strip prefix before forwarding)
-    - match: Host(`conecta.acdgbrasil.com.br`) && PathPrefix(`/api/`)
+    # BFF — /api/* (strip prefix)
+    - match: Host(`conecta-hml.acdgbrasil.com.br`) && PathPrefix(`/api/`)
       kind: Rule
       middlewares:
-        - name: strip-api-prefix
+        - name: strip-api-prefix-hml
       services:
-        - name: social-care-bff
+        - name: social-care-bff-hml
           port: 80
 
-    # BFF — /auth/* (no strip, BFF handles auth routes directly)
-    - match: Host(`conecta.acdgbrasil.com.br`) && PathPrefix(`/auth/`)
+    # BFF — /auth/* (no strip)
+    - match: Host(`conecta-hml.acdgbrasil.com.br`) && PathPrefix(`/auth/`)
       kind: Rule
       services:
-        - name: social-care-bff
+        - name: social-care-bff-hml
           port: 80
 
-    # BFF — /health/* (no strip, BFF health probes)
-    - match: Host(`conecta.acdgbrasil.com.br`) && PathPrefix(`/health/`)
+    # BFF — /health/* (no strip)
+    - match: Host(`conecta-hml.acdgbrasil.com.br`) && PathPrefix(`/health/`)
       kind: Rule
       services:
-        - name: social-care-bff
+        - name: social-care-bff-hml
           port: 80
 
-    # Frontend — everything else (Flutter WASM via nginx)
-    - match: Host(`conecta.acdgbrasil.com.br`)
+    # Frontend — everything else
+    - match: Host(`conecta-hml.acdgbrasil.com.br`)
       kind: Rule
       services:
-        - name: conecta-web
+        - name: conecta-web-hml
           port: 80
