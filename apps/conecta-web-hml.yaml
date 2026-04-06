@@ -69,7 +69,7 @@ spec:
         hardware-type: high-performance
       containers:
       - name: conecta-web-hml
-        image: ghcr.io/acdgbrasil/conecta-web:v0.2.1
+        image: ghcr.io/acdgbrasil/conecta-web:v0.2.2
         ports:
         - containerPort: 80
         readinessProbe:
@@ -130,7 +130,7 @@ spec:
         hardware-type: high-performance
       containers:
       - name: social-care-bff-hml
-        image: ghcr.io/acdgbrasil/social-care-bff:v0.2.1
+        image: ghcr.io/acdgbrasil/social-care-bff:v0.2.2
         ports:
         - containerPort: 8081
         env:
@@ -140,6 +140,8 @@ spec:
           value: "0.0.0.0"
         - name: API_BASE_URL
           value: "http://social-care-hml.default.svc.cluster.local"
+        - name: PEOPLE_CONTEXT_BASE_URL
+          value: "http://people-context-hml.default.svc.cluster.local"
         - name: OIDC_ISSUER
           value: "https://auth.acdgbrasil.com.br"
         - name: OIDC_CLIENT_ID
