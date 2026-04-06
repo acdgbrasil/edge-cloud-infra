@@ -1,0 +1,207 @@
+# -----------------------------------------------------------
+# Conecta Raros — Web Frontend + BFF (ACDG)
+#
+# Two Deployments behind a single domain via path routing:
+#   conecta.acdgbrasil.com.br/      → conecta-web (nginx, Flutter WASM)
+#   conecta.acdgbrasil.com.br/api/* → social-care-bff (Dart AOT, shelf)
+#
+# Same-origin ensures SameSite=Strict cookies for Split-Token auth.
+#
+# Images:
+#   ghcr.io/acdgbrasil/conecta-web
+#   ghcr.io/acdgbrasil/social-care-bff
+# -----------------------------------------------------------
+
+---
+# 1. Deployment — conecta-web (Flutter WASM + nginx)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: conecta-web
+  labels:
+    app: conecta-web
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: conecta-web
+  template:
+    metadata:
+      labels:
+        app: conecta-web
+    spec:
+      imagePullSecrets:
+      - name: ghcr-credentials
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: conecta-web
+        image: ghcr.io/acdgbrasil/conecta-web:v0.1.0
+        ports:
+        - containerPort: 80
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "25m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+
+---
+# 2. Service — conecta-web
+apiVersion: v1
+kind: Service
+metadata:
+  name: conecta-web
+spec:
+  selector:
+    app: conecta-web
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+# 3. Deployment — social-care-bff (Dart AOT + shelf)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: social-care-bff
+  labels:
+    app: social-care-bff
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: social-care-bff
+  template:
+    metadata:
+      labels:
+        app: social-care-bff
+    spec:
+      imagePullSecrets:
+      - name: ghcr-credentials
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: social-care-bff
+        image: ghcr.io/acdgbrasil/social-care-bff:v0.1.0
+        ports:
+        - containerPort: 8081
+        env:
+        - name: PORT
+          value: "8081"
+        - name: HOST
+          value: "0.0.0.0"
+        - name: API_BASE_URL
+          value: "http://social-care.default.svc.cluster.local"
+        - name: OIDC_ISSUER
+          value: "https://auth.acdgbrasil.com.br"
+        - name: OIDC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: bff-oidc-credentials
+              key: client-id
+        - name: OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bff-oidc-credentials
+              key: client-secret
+        - name: OIDC_REDIRECT_URI
+          value: "https://conecta.acdgbrasil.com.br/api/auth/callback"
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bff-session-secret
+              key: secret
+        - name: SESSION_TTL_MINUTES
+          value: "60"
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8081
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+
+---
+# 4. Service — social-care-bff
+apiVersion: v1
+kind: Service
+metadata:
+  name: social-care-bff
+spec:
+  selector:
+    app: social-care-bff
+  ports:
+  - port: 80
+    targetPort: 8081
+
+---
+# 5. Middleware — strip /api prefix before reaching BFF
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-prefix
+spec:
+  stripPrefix:
+    prefixes:
+      - /api
+
+---
+# 6. IngressRoute — single domain, path routing
+#
+# Same-origin: both services under conecta.acdgbrasil.com.br
+# /api/* → BFF (with prefix stripped)
+# /*     → nginx (static WASM)
+#
+# TLS is terminated by Caddy on the VPS. Traffic arrives at Traefik
+# over HTTP (port 80) via Tailscale, so we use entryPoint "web".
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: conecta-web-ingress
+spec:
+  entryPoints:
+    - web
+  routes:
+    # BFF — /api/* (strip prefix before forwarding)
+    - match: Host(`conecta.acdgbrasil.com.br`) && PathPrefix(`/api/`)
+      kind: Rule
+      middlewares:
+        - name: strip-api-prefix
+      services:
+        - name: social-care-bff
+          port: 80
+
+    # Static WASM — everything else
+    - match: Host(`conecta.acdgbrasil.com.br`)
+      kind: Rule
+      services:
+        - name: conecta-web
+          port: 80
