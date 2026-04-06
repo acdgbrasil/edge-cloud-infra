@@ -41,6 +41,8 @@ spec:
           value: "https://admin.acdgbrasil.com.br"
         - name: OIDC_ISSUER
           value: "https://auth.acdgbrasil.com.br"
+        - name: PEOPLE_API_URL
+          value: "http://people-context.default.svc.cluster.local"
         - name: OIDC_CLIENT_ID
           valueFrom:
             secretKeyRef:
