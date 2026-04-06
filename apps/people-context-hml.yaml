@@ -17,7 +17,7 @@ spec:
     secretName: bw-auth-token
     secretKey: token
   map:
-    - bwSecretId: "d148a9ae-135d-4fd3-ba83-b3f00055eca5"
+    - bwSecretId: "5dab149f-bd93-477b-a696-b4240109c2ae"
       secretKeyName: password
 
 ---
