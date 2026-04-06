@@ -29,7 +29,7 @@ spec:
         hardware-type: high-performance
       containers:
       - name: admin-painel
-        image: ghcr.io/acdgbrasil/admin-painel:v0.3.0
+        image: ghcr.io/acdgbrasil/admin-painel:v0.4.0
         ports:
         - containerPort: 3000
         env:
