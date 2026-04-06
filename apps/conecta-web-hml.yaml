@@ -23,9 +23,9 @@ spec:
     secretName: bw-auth-token
     secretKey: token
   map:
-    - bwSecretId: "REPLACE_WITH_BFF_OIDC_CLIENT_ID_STAGING_SECRET_ID"
+    - bwSecretId: "0a82890b-0fb4-49d6-bbc6-b42400d47c5e"
       secretKeyName: client-id
-    - bwSecretId: "REPLACE_WITH_BFF_OIDC_CLIENT_SECRET_STAGING_SECRET_ID"
+    - bwSecretId: "4189ce3a-c21f-406e-bf8a-b42400d48aed"
       secretKeyName: client-secret
 
 ---
@@ -41,7 +41,7 @@ spec:
     secretName: bw-auth-token
     secretKey: token
   map:
-    - bwSecretId: "REPLACE_WITH_BFF_SESSION_SECRET_STAGING_SECRET_ID"
+    - bwSecretId: "95c92038-0fd5-4c7d-ba7a-b42400d49e45"
       secretKeyName: secret
 
 ---
