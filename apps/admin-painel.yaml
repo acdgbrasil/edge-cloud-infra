@@ -1,0 +1,92 @@
+# -----------------------------------------------------------
+# Admin Panel — Painel de gestão de usuários ACDG
+# SolidJS SPA + Zitadel Management API (direct)
+# Imagem: ghcr.io/acdgbrasil/admin-painel
+# -----------------------------------------------------------
+
+---
+# 1. Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-painel
+  labels:
+    app: admin-painel
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: admin-painel
+  template:
+    metadata:
+      labels:
+        app: admin-painel
+    spec:
+      imagePullSecrets:
+      - name: ghcr-credentials
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: admin-painel
+        image: ghcr.io/acdgbrasil/admin-painel:v0.1.0
+        ports:
+        - containerPort: 3000
+        env:
+        - name: PORT
+          value: "3000"
+        - name: HOST
+          value: "0.0.0.0"
+        readinessProbe:
+          httpGet:
+            path: /login
+            port: 3000
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /login
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "25m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+
+---
+# 2. Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-painel
+spec:
+  selector:
+    app: admin-painel
+  ports:
+  - port: 80
+    targetPort: 3000
+
+---
+# 3. Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: admin-painel-ingress
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: admin.acdgbrasil.com.br
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: admin-painel
+            port:
+              number: 80
