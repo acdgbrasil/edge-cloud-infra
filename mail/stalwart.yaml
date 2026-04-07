@@ -193,7 +193,12 @@ spec:
                 --key-file /certs/tls.key \
                 --fullchain-file /certs/tls.crt
 
-              [ -f /certs/tls.crt ] && [ -f /certs/tls.key ] && echo "Certs ready" || exit 1
+              if [ -f /certs/tls.crt ] && [ -f /certs/tls.key ]; then
+                chmod 644 /certs/tls.crt /certs/tls.key
+                echo "Certs ready"
+              else
+                exit 1
+              fi
             env:
             - name: CF_API_TOKEN
               valueFrom:
