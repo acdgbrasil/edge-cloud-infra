@@ -25,8 +25,9 @@
 #      kubectl create secret generic stalwart-admin-credentials -n mail \
 #        --from-literal=admin-password='<SENHA-ADMIN>'
 #
-#   5. TLS: gerenciado automaticamente via ACME (Let's Encrypt).
-#      Requer porta 443 encaminhada da VPS (HAProxy) para NodePort 30443.
+#   5. TLS: gerenciado automaticamente via ACME DNS-01 (Let's Encrypt + Cloudflare).
+#      Requer: secret stalwart-cf-credentials com API token Cloudflare.
+#      CNAME na Umbler: _acme-challenge.mail → _acme-challenge.mail.noticetable.com
 #
 #   6. Garantir diretório no Xeon:
 #      sudo mkdir -p /var/lib/stalwart
@@ -77,18 +78,19 @@ data:
     bind = ["[::]:8080"]
     protocol = "http"
 
-    [server.listener."https"]
-    bind = ["[::]:443"]
-    protocol = "http"
-    tls.implicit = true
-
-    # --- TLS (ACME Let's Encrypt) ---
+    # --- TLS (ACME Let's Encrypt via DNS-01 + Cloudflare) ---
+    # Usa CNAME delegation: _acme-challenge.mail.acdgbrasil.com.br → _acme-challenge.mail.noticetable.com
+    # Stalwart cria TXT records na Cloudflare (noticetable.com) via API
     [acme."letsencrypt"]
     directory = "https://acme-v02.api.letsencrypt.org/directory"
-    challenge = "tls-alpn-01"
+    challenge = "dns-01"
     domains = ["mail.acdgbrasil.com.br"]
     contact = ["mailto:admin@acdgbrasil.com.br"]
     default = true
+    provider = "cloudflare"
+
+    [acme."letsencrypt".auth]
+    secret = "%{env:CF_API_TOKEN}%"
 
     # --- Storage (PostgreSQL) ---
     [store."postgresql"]
@@ -209,8 +211,6 @@ spec:
           name: imap
         - containerPort: 993
           name: imaps
-        - containerPort: 443
-          name: https
         - containerPort: 8080
           name: http
         env:
@@ -229,6 +229,11 @@ spec:
             secretKeyRef:
               name: resend-credentials
               key: api-key
+        - name: CF_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: stalwart-cf-credentials
+              key: api-token
         volumeMounts:
         - name: data
           mountPath: /opt/stalwart
@@ -298,11 +303,6 @@ spec:
   selector:
     app: stalwart
   ports:
-  - name: https
-    port: 443
-    targetPort: 443
-    nodePort: 30443
-    protocol: TCP
   - name: smtp
     port: 25
     targetPort: 25

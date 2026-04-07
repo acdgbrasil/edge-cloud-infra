@@ -15,11 +15,13 @@ Servidor de e-mail all-in-one rodando na edge cloud (K3s).
 INTERNET
     |
 [VPS Gateway] (201.23.12.141)
-    |- HAProxy :443 → Tailscale → K3s NodePort :30443 (HTTPS, webmail + ACME)
+    |- Caddy :443  → Tailscale → K3s Traefik :80 (HTTPS, webmail)
     |- HAProxy :25  → Tailscale → K3s NodePort :30208 (SMTP entrada)
     |- HAProxy :465 → Tailscale → K3s NodePort :32286 (SMTPS)
     |- HAProxy :587 → Tailscale → K3s NodePort :31420 (Submission)
     |- HAProxy :993 → Tailscale → K3s NodePort :32078 (IMAPS)
+    |
+    TLS: ACME DNS-01 via Cloudflare (CNAME delegation noticetable.com)
     |
 [XEON K3s] (100.77.46.69)
     |- Namespace: mail
@@ -65,12 +67,6 @@ defaults
     timeout connect 10s
     timeout client  300s
     timeout server  300s
-
-frontend ft_https_mail
-    bind *:443
-    default_backend bk_https_mail
-backend bk_https_mail
-    server xeon-mail 100.77.46.69:30443 check
 
 frontend ft_smtp
     bind *:25
