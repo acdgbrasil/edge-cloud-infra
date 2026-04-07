@@ -1,0 +1,14 @@
+name: Auto Version
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    name: Auto version from conventional commit
+    uses: acdgbrasil/.github/.github/workflows/reusable-auto-version.yml@main
