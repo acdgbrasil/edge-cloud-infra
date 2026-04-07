@@ -1,0 +1,104 @@
+name: Smoke Test — Post-Deploy Health Checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+          - prod
+          - hml
+  # Run after any push to main (Flux will reconcile, then we verify)
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    name: Health Check — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Production services
+          - service: social-care
+            url_prod: https://social-care.acdgbrasil.com.br/health
+            url_hml: https://social-care-hml.acdgbrasil.com.br/health
+          - service: people-context
+            url_prod: https://people.acdgbrasil.com.br/health
+            url_hml: https://people-hml.acdgbrasil.com.br/health
+          - service: conecta-web
+            url_prod: https://conecta.acdgbrasil.com.br/health/live
+            url_hml: https://conecta-hml.acdgbrasil.com.br/health/live
+          - service: auth (zitadel)
+            url_prod: https://auth.acdgbrasil.com.br/healthz
+            url_hml: https://auth.acdgbrasil.com.br/healthz
+
+    steps:
+      - name: Wait for Flux reconciliation
+        run: sleep 90
+
+      - name: Determine URL
+        id: url
+        run: |
+          ENV="${{ github.event.inputs.environment || 'prod' }}"
+          if [[ "$ENV" == "hml" ]]; then
+            echo "target=${{ matrix.url_hml }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "target=${{ matrix.url_prod }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "env=$ENV" >> "$GITHUB_OUTPUT"
+
+      - name: Health check — ${{ matrix.service }} (${{ steps.url.outputs.env }})
+        run: |
+          URL="${{ steps.url.outputs.target }}"
+          echo "Checking: $URL"
+
+          MAX_RETRIES=5
+          RETRY_DELAY=30
+
+          for i in $(seq 1 $MAX_RETRIES); do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 30 "$URL" || echo "000")
+
+            if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+              echo "✓ ${{ matrix.service }} is healthy (HTTP $HTTP_CODE)"
+              exit 0
+            fi
+
+            echo "Attempt $i/$MAX_RETRIES: HTTP $HTTP_CODE — retrying in ${RETRY_DELAY}s..."
+            sleep $RETRY_DELAY
+          done
+
+          echo "::error::${{ matrix.service }} failed health check after $MAX_RETRIES attempts (last HTTP $HTTP_CODE)"
+          exit 1
+
+  summary:
+    name: Deploy Summary
+    needs: smoke-test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish summary
+        run: |
+          {
+            echo "## Smoke Test Results"
+            echo ""
+            echo "| Service | Status |"
+            echo "|---------|--------|"
+            if [[ "${{ needs.smoke-test.result }}" == "success" ]]; then
+              echo "| All services | ✅ Healthy |"
+            else
+              echo "| Some services | ❌ Check logs |"
+            fi
+            echo ""
+            echo "Environment: ${{ github.event.inputs.environment || 'prod' }}"
+            echo "Triggered by: ${{ github.event_name }}"
+          } >> "$GITHUB_STEP_SUMMARY"
