@@ -88,8 +88,6 @@ data:
     contact = ["mailto:admin@acdgbrasil.com.br"]
     default = true
     provider = "cloudflare"
-
-    [acme."letsencrypt".auth]
     secret = "%{env:CF_API_TOKEN}%"
 
     # --- Storage (PostgreSQL) ---
