@@ -182,10 +182,11 @@ spec:
               # Registrar conta ACME (idempotente)
               acme.sh --register-account -m admin@acdgbrasil.com.br --server letsencrypt
 
-              # Emitir/renovar cert via DNS-01 Cloudflare
+              # Emitir/renovar cert via DNS-01 Cloudflare (CNAME delegation)
               acme.sh --issue \
                 --dns dns_cf \
                 --domain mail.acdgbrasil.com.br \
+                --domain-alias _acme-challenge.mail.noticetable.com \
                 --server letsencrypt \
                 --force
 
