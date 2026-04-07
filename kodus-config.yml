@@ -1,0 +1,40 @@
+version: '1.2'
+
+summary:
+  generatePRSummary: true
+  customInstructions: >
+    Summarize infrastructure changes: which services are affected, image version bumps,
+    new deployments, secret references, and Flux reconciliation impacts.
+  behaviourForExistingDescription: concatenate
+
+ignorePaths:
+  - docs/
+  - '*.md'
+
+baseBranches: []
+
+reviewOptions:
+  security: true
+  code_style: false
+  kody_rules: true
+  refactoring: false
+  error_handling: false
+  maintainability: true
+  potential_issues: true
+  documentation_and_comments: false
+  performance_and_optimization: false
+  business_logic: false
+
+suggestionControl:
+  groupingMode: full
+  limitationType: pr
+  maxSuggestions: 6
+  severityLevelFilter: high
+
+ignoredTitleKeywords:
+  - docs
+
+automatedReviewActive: true
+pullRequestApprovalActive: false
+isRequestChangesActive: false
+llmGeneratedMemoriesRequireApproval: false
