@@ -169,7 +169,7 @@ spec:
           nodeSelector:
             hardware-type: high-performance
           serviceAccountName: acme-cert-renew
-          containers:
+          initContainers:
           - name: acme
             image: neilpang/acme.sh:latest
             command:
@@ -179,10 +179,8 @@ spec:
               export CF_Token="$CF_API_TOKEN"
               export CF_Zone_ID="$CF_ZONE_ID"
 
-              # Registrar conta ACME (idempotente)
               acme.sh --register-account -m admin@acdgbrasil.com.br --server letsencrypt
 
-              # Emitir/renovar cert via DNS-01 Cloudflare (CNAME delegation)
               acme.sh --issue \
                 --dns dns_cf \
                 --domain mail.acdgbrasil.com.br \
@@ -190,32 +188,12 @@ spec:
                 --server letsencrypt \
                 --force
 
-              # Instalar cert nos arquivos temporários
               acme.sh --install-cert -d mail.acdgbrasil.com.br \
                 --cert-file /certs/tls.crt \
                 --key-file /certs/tls.key \
                 --fullchain-file /certs/tls.crt
 
-              # Atualizar o secret no K8s
-              if [ -f /certs/tls.crt ] && [ -f /certs/tls.key ]; then
-                cat <<EOKUBE | kubectl apply -f -
-              apiVersion: v1
-              kind: Secret
-              metadata:
-                name: stalwart-tls-cert
-                namespace: mail
-              type: kubernetes.io/tls
-              data:
-                tls.crt: $(base64 -w0 /certs/tls.crt)
-                tls.key: $(base64 -w0 /certs/tls.key)
-              EOKUBE
-
-                # Restart Stalwart pra carregar o novo cert
-                kubectl rollout restart deployment stalwart -n mail
-                echo "Cert renewed and applied successfully"
-              else
-                echo "ERROR: cert files not found" && exit 1
-              fi
+              [ -f /certs/tls.crt ] && [ -f /certs/tls.key ] && echo "Certs ready" || exit 1
             env:
             - name: CF_API_TOKEN
               valueFrom:
@@ -227,6 +205,27 @@ spec:
             volumeMounts:
             - name: certs
               mountPath: /certs
+          containers:
+          - name: kubectl
+            image: bitnami/kubectl:latest
+            command:
+            - sh
+            - -c
+            - |
+              # Criar/atualizar secret com o cert
+              kubectl create secret tls stalwart-tls-cert \
+                --cert=/certs/tls.crt \
+                --key=/certs/tls.key \
+                --namespace=mail \
+                --dry-run=client -o yaml | kubectl apply -f -
+
+              # Restart Stalwart pra carregar o novo cert
+              kubectl rollout restart deployment stalwart -n mail
+              echo "Cert renewed and applied successfully"
+            volumeMounts:
+            - name: certs
+              mountPath: /certs
+              readOnly: true
           volumes:
           - name: certs
             emptyDir: {}
