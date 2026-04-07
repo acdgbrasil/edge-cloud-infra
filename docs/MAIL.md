@@ -6,7 +6,7 @@ Servidor de e-mail all-in-one rodando na edge cloud (K3s).
 **Dominio:** `acdgbrasil.com.br`
 **Hostname:** `mail.acdgbrasil.com.br`
 **Namespace K8s:** `mail`
-**Relay SMTP:** Resend (smtp.resend.com:465)
+**Relay SMTP:** Resend (smtp.resend.com:587, STARTTLS)
 **Storage:** PostgreSQL dedicado (`stalwart` database, 5 Gi)
 
 ## Topologia de Rede
@@ -14,7 +14,7 @@ Servidor de e-mail all-in-one rodando na edge cloud (K3s).
 ```
 INTERNET
     |
-[VPS Gateway] (201.23.14.199)
+[VPS Gateway] (201.23.12.141)
     |- Caddy :443  → Tailscale → K3s Traefik :80 (HTTPS, admin web)
     |- HAProxy :25  → Tailscale → K3s NodePort :30208 (SMTP entrada)
     |- HAProxy :465 → Tailscale → K3s NodePort :32286 (SMTPS)
@@ -100,20 +100,20 @@ sudo systemctl restart haproxy
 
 | Tipo | Nome | Valor | TTL |
 |------|------|-------|-----|
-| A | `mail` | `201.23.14.199` | 3600 |
+| A | `mail` | `201.23.12.141` | 3600 |
 | MX | `@` (raiz) | `mail.acdgbrasil.com.br` (prioridade 10) | 3600 |
-| TXT | `@` (raiz) | `v=spf1 mx a:mail.acdgbrasil.com.br -all` | 3600 |
+| TXT | `@` (raiz) | `v=spf1 ip4:201.23.12.141 include:_spf.resend.com ~all` | 3600 |
 | TXT | `_dmarc` | `v=DMARC1; p=none; rua=mailto:dmarc@acdgbrasil.com.br` | 3600 |
-| TXT | `dkim._domainkey` | `v=DKIM1; k=rsa; p=<CHAVE-PUBLICA>` | 3600 |
+| TXT | `default._domainkey` | `v=DKIM1; k=rsa; p=<CHAVE-PUBLICA>` | 3600 |
 
 Verificar:
 ```bash
-dig A mail.acdgbrasil.com.br +short          # 201.23.14.199
+dig A mail.acdgbrasil.com.br +short          # 201.23.12.141
 dig MX acdgbrasil.com.br +short              # 10 mail.acdgbrasil.com.br.
 dig TXT acdgbrasil.com.br +short             # SPF
 dig TXT _dmarc.acdgbrasil.com.br +short      # DMARC
 dig TXT dkim._domainkey.acdgbrasil.com.br     # DKIM
-dig -x 201.23.14.199 +short                  # PTR
+dig -x 201.23.12.141 +short                  # PTR (mail.acdgbrasil.com.br)
 ```
 
 ## Integracao com Zitadel
@@ -158,7 +158,7 @@ echo QUIT | nc -w5 100.77.46.69 30208
 ```
 
 ### E-mails rejeitados
-1. Verificar PTR: `dig -x 201.23.14.199 +short`
+1. Verificar PTR: `dig -x 201.23.12.141 +short`
 2. Verificar SPF: `dig TXT acdgbrasil.com.br`
 3. Score geral: https://www.mail-tester.com/
 4. Blacklists: https://mxtoolbox.com/blacklists.aspx
@@ -167,7 +167,7 @@ echo QUIT | nc -w5 100.77.46.69 30208
 ```bash
 sudo systemctl status haproxy
 sudo haproxy -c -f /etc/haproxy/haproxy.cfg
-nc -zv 100.77.46.69 30208    # testar VPS → Xeon
+nc -zv 100.77.46.69 30208    # testar Gateway → Xeon via Tailscale
 ```
 
 ## Arquivos Relacionados

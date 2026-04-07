@@ -48,6 +48,7 @@ data:
     [server]
     hostname = "mail.acdgbrasil.com.br"
     max-connections = 1024
+    allowed-ips = ["10.42.0.0/16", "10.43.0.0/16", "127.0.0.0/8"]
 
     # --- Listeners ---
     [server.listener."smtp"]
@@ -98,17 +99,49 @@ data:
     [store."postgresql".pool]
     max-connections = 10
 
+    # --- Directory (user management via PostgreSQL) ---
+    [directory."internal"]
+    type = "internal"
+    store = "postgresql"
+
     [storage]
     data = "postgresql"
     blob = "postgresql"
     fts = "postgresql"
     lookup = "postgresql"
-    directory = "postgresql"
+    directory = "internal"
 
     # --- Admin fallback ---
     [authentication.fallback-admin]
     user = "admin"
     secret = "%{env:ADMIN_PASSWORD}%"
+
+    # --- DKIM ---
+    [signature."dkim"]
+    algorithm = "rsa-sha256"
+    domain = "acdgbrasil.com.br"
+    selector = "default"
+    private-key = "%{file:/opt/stalwart/etc/dkim/dkim-private.pem}%"
+    headers = ["From", "To", "Date", "Subject", "Message-ID"]
+    set = true
+
+    # --- SMTP Relay via Resend (porta 25 outbound bloqueada pelo datacenter) ---
+    [queue.outbound.next-hop]
+    if = "true"
+    then = "relay"
+
+    [remote."relay"]
+    address = "smtp.resend.com"
+    port = 587
+    protocol = "smtp"
+
+    [remote."relay".tls]
+    implicit = false
+    starttls = true
+
+    [remote."relay".auth]
+    username = "resend"
+    secret = "%{env:RESEND_SMTP_KEY}%"
 
 # ==========================================================
 # BitwardenSecret — API key do Resend (relay SMTP)
@@ -196,6 +229,9 @@ spec:
         - name: tls
           mountPath: /opt/stalwart/etc/tls
           readOnly: true
+        - name: dkim
+          mountPath: /opt/stalwart/etc/dkim
+          readOnly: true
         resources:
           requests:
             cpu: 100m
@@ -231,6 +267,12 @@ spec:
             path: tls.crt
           - key: tls.key
             path: tls.key
+      - name: dkim
+        secret:
+          secretName: stalwart-dkim-key
+          items:
+          - key: dkim-private.pem
+            path: dkim-private.pem
 
 # --- Service: ClusterIP para Ingress HTTP ---
 ---
