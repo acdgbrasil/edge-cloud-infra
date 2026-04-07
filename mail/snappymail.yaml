@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snappymail
+  namespace: mail
+  labels:
+    app: snappymail
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: snappymail
+  template:
+    metadata:
+      labels:
+        app: snappymail
+    spec:
+      containers:
+      - name: snappymail
+        image: djmaze/snappymail:latest
+        ports:
+        - containerPort: 8888
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/snappymail
+      volumes:
+      - name: data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: snappymail
+  namespace: mail
+  labels:
+    app: snappymail
+spec:
+  selector:
+    app: snappymail
+  ports:
+  - port: 80
+    targetPort: 8888
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: snappymail
+  namespace: mail
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: webmail.acdgbrasil.com.br
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: snappymail
+            port:
+              number: 80
