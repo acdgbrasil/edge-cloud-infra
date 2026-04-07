@@ -15,7 +15,7 @@ Servidor de e-mail all-in-one rodando na edge cloud (K3s).
 INTERNET
     |
 [VPS Gateway] (201.23.12.141)
-    |- Caddy :443  → Tailscale → K3s Traefik :80 (HTTPS, admin web)
+    |- HAProxy :443 → Tailscale → K3s NodePort :30443 (HTTPS, webmail + ACME)
     |- HAProxy :25  → Tailscale → K3s NodePort :30208 (SMTP entrada)
     |- HAProxy :465 → Tailscale → K3s NodePort :32286 (SMTPS)
     |- HAProxy :587 → Tailscale → K3s NodePort :31420 (Submission)
@@ -65,6 +65,12 @@ defaults
     timeout connect 10s
     timeout client  300s
     timeout server  300s
+
+frontend ft_https_mail
+    bind *:443
+    default_backend bk_https_mail
+backend bk_https_mail
+    server xeon-mail 100.77.46.69:30443 check
 
 frontend ft_smtp
     bind *:25

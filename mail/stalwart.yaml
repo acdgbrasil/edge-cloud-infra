@@ -25,8 +25,8 @@
 #      kubectl create secret generic stalwart-admin-credentials -n mail \
 #        --from-literal=admin-password='<SENHA-ADMIN>'
 #
-#   5. Criar o certificado TLS (reusar o auto-assinado existente):
-#      (O secret mailu-tls-cert já existe no namespace mail)
+#   5. TLS: gerenciado automaticamente via ACME (Let's Encrypt).
+#      Requer porta 443 encaminhada da VPS (HAProxy) para NodePort 30443.
 #
 #   6. Garantir diretório no Xeon:
 #      sudo mkdir -p /var/lib/stalwart
@@ -77,10 +77,17 @@ data:
     bind = ["[::]:8080"]
     protocol = "http"
 
-    # --- TLS ---
-    [certificate."default"]
-    cert = "%{file:/opt/stalwart/etc/tls/tls.crt}%"
-    private-key = "%{file:/opt/stalwart/etc/tls/tls.key}%"
+    [server.listener."https"]
+    bind = ["[::]:443"]
+    protocol = "http"
+    tls.implicit = true
+
+    # --- TLS (ACME Let's Encrypt) ---
+    [acme."letsencrypt"]
+    directory = "https://acme-v02.api.letsencrypt.org/directory"
+    challenge = "tls-alpn-01"
+    domains = ["mail.acdgbrasil.com.br"]
+    contact = ["mailto:admin@acdgbrasil.com.br"]
     default = true
 
     # --- Storage (PostgreSQL) ---
@@ -202,6 +209,8 @@ spec:
           name: imap
         - containerPort: 993
           name: imaps
+        - containerPort: 443
+          name: https
         - containerPort: 8080
           name: http
         env:
@@ -226,9 +235,6 @@ spec:
         - name: config
           mountPath: /opt/stalwart/etc/config.toml
           subPath: config.toml
-        - name: tls
-          mountPath: /opt/stalwart/etc/tls
-          readOnly: true
         - name: dkim
           mountPath: /opt/stalwart/etc/dkim
           readOnly: true
@@ -257,14 +263,6 @@ spec:
         hostPath:
           path: /var/lib/stalwart
           type: DirectoryOrCreate
-      - name: tls
-        secret:
-          secretName: mailu-tls-cert
-          items:
-          - key: tls.crt
-            path: tls.crt
-          - key: tls.key
-            path: tls.key
       - name: dkim
         secret:
           secretName: stalwart-dkim-key
@@ -300,6 +298,11 @@ spec:
   selector:
     app: stalwart
   ports:
+  - name: https
+    port: 443
+    targetPort: 443
+    nodePort: 30443
+    protocol: TCP
   - name: smtp
     port: 25
     targetPort: 25
