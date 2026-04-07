@@ -11,7 +11,14 @@ on:
         options:
           - prod
           - hml
-  # Run after any push to main (Flux will reconcile, then we verify)
+      mode:
+        description: 'Check mode'
+        required: true
+        default: 'http'
+        type: choice
+        options:
+          - http
+          - kubectl
   push:
     branches: [main]
     paths:
@@ -19,16 +26,18 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
-  smoke-test:
-    name: Health Check — ${{ matrix.service }}
+  # ---- HTTP health checks (external, works without OIDC) ----
+  http-check:
+    name: HTTP Health — ${{ matrix.service }}
+    if: ${{ github.event.inputs.mode != 'kubectl' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Production services
           - service: social-care
             url_prod: https://social-care.acdgbrasil.com.br/health
             url_hml: https://social-care-hml.acdgbrasil.com.br/health
@@ -57,7 +66,7 @@ jobs:
           fi
           echo "env=$ENV" >> "$GITHUB_OUTPUT"
 
-      - name: Health check — ${{ matrix.service }} (${{ steps.url.outputs.env }})
+      - name: Health check — ${{ matrix.service }}
         run: |
           URL="${{ steps.url.outputs.target }}"
           echo "Checking: $URL"
@@ -80,25 +89,133 @@ jobs:
           echo "::error::${{ matrix.service }} failed health check after $MAX_RETRIES attempts (last HTTP $HTTP_CODE)"
           exit 1
 
+  # ---- Kubectl deep check (requires OIDC setup on K3s) ----
+  kubectl-check:
+    name: Kubectl Deep Check
+    if: ${{ github.event.inputs.mode == 'kubectl' }}
+    runs-on: ubuntu-latest
+
+    env:
+      K3S_API_SERVER: https://100.77.46.69:6443
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Get OIDC token
+        id: oidc
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const token = await core.getIDToken('sts.amazonaws.com');
+            core.setOutput('token', token);
+
+      - name: Configure kubectl with OIDC
+        run: |
+          kubectl config set-cluster k3s \
+            --server="${K3S_API_SERVER}" \
+            --insecure-skip-tls-verify=true
+
+          kubectl config set-credentials github-oidc \
+            --token="${{ steps.oidc.outputs.token }}"
+
+          kubectl config set-context github \
+            --cluster=k3s \
+            --user=github-oidc
+
+          kubectl config use-context github
+
+      - name: Verify cluster access
+        run: kubectl get namespaces
+
+      - name: Check deployments
+        run: |
+          echo "## Deployment Status" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          kubectl get deployments -o wide >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          kubectl get deployments -o wide
+
+      - name: Check pods health
+        run: |
+          echo ""
+          echo "== All Pods =="
+          kubectl get pods -o wide
+
+          echo ""
+          echo "== Pods NOT Running =="
+          NOT_RUNNING=$(kubectl get pods --field-selector=status.phase!=Running,status.phase!=Succeeded -o name 2>/dev/null || true)
+
+          if [[ -n "$NOT_RUNNING" ]]; then
+            echo "::warning::Found pods not in Running state:"
+            echo "$NOT_RUNNING"
+
+            echo "## ⚠️ Pods Not Running" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "$NOT_RUNNING" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "All pods are Running or Succeeded."
+            echo "## ✅ All pods healthy" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Check recent pod restarts
+        run: |
+          echo ""
+          echo "== Pods with restarts =="
+          kubectl get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .status.containerStatuses[*]}{.restartCount}{"\t"}{end}{"\n"}{end}' \
+            | awk -F'\t' '$2 > 0 {print $1 " restarts=" $2}'
+
+      - name: Check Flux reconciliation status
+        run: |
+          echo ""
+          echo "== Flux Kustomizations =="
+          kubectl get kustomizations -A 2>/dev/null || echo "No Flux kustomizations found"
+
+          echo ""
+          echo "== Flux HelmReleases =="
+          kubectl get helmreleases -A 2>/dev/null || echo "No HelmReleases found"
+
+      - name: Check resource usage
+        run: |
+          echo ""
+          echo "== Node Resources =="
+          kubectl top nodes 2>/dev/null || echo "Metrics server not available"
+
+          echo ""
+          echo "== Pod Resources =="
+          kubectl top pods 2>/dev/null || echo "Metrics server not available"
+
+  # ---- Summary ----
   summary:
     name: Deploy Summary
-    needs: smoke-test
+    needs: [http-check, kubectl-check]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Publish summary
         run: |
+          MODE="${{ github.event.inputs.mode || 'http' }}"
           {
             echo "## Smoke Test Results"
             echo ""
-            echo "| Service | Status |"
-            echo "|---------|--------|"
-            if [[ "${{ needs.smoke-test.result }}" == "success" ]]; then
-              echo "| All services | ✅ Healthy |"
-            else
-              echo "| Some services | ❌ Check logs |"
-            fi
+            echo "- **Mode:** ${MODE}"
+            echo "- **Environment:** ${{ github.event.inputs.environment || 'prod' }}"
+            echo "- **Triggered by:** ${{ github.event_name }}"
             echo ""
-            echo "Environment: ${{ github.event.inputs.environment || 'prod' }}"
-            echo "Triggered by: ${{ github.event_name }}"
+
+            if [[ "$MODE" == "kubectl" ]]; then
+              if [[ "${{ needs.kubectl-check.result }}" == "success" ]]; then
+                echo "✅ Cluster check passed"
+              else
+                echo "❌ Cluster check failed — review logs"
+              fi
+            else
+              if [[ "${{ needs.http-check.result }}" == "success" ]]; then
+                echo "✅ All services healthy"
+              else
+                echo "❌ Some services failed — review logs"
+              fi
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

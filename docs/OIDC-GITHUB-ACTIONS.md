@@ -11,16 +11,24 @@ Permite que GitHub Actions autentique no cluster K3s sem armazenar kubeconfig/to
 - Audit trail nativo — cada token identifica o repo, branch, workflow e actor
 - Princípio de menor privilégio — RBAC por repo/branch
 
-## Pré-requisitos
+## Setup
 
-1. K3s com acesso ao API server via Tailscale (já configurado)
-2. K3s API server configurado para aceitar OIDC tokens do GitHub
+### Opção 1: Script automatizado (recomendado)
 
-## Configuração no K3s
+No master-xeon, na raiz do repo:
 
-### 1. Editar configuração do K3s API server
+```bash
+sudo bash scripts/setup-oidc.sh
+```
 
-No servidor master, editar `/etc/rancher/k3s/config.yaml`:
+O script:
+1. Adiciona OIDC flags ao K3s config (`/etc/rancher/k3s/config.yaml`)
+2. Reinicia K3s
+3. Aplica RBAC (`clusters/master-xeon/rbac-github-actions.yaml`)
+
+### Opção 2: Manual
+
+#### 1. Editar `/etc/rancher/k3s/config.yaml`
 
 ```yaml
 kube-apiserver-arg:
@@ -30,93 +38,63 @@ kube-apiserver-arg:
   - "--oidc-groups-claim=repository"
 ```
 
-> Nota: `oidc-client-id` usa `sts.amazonaws.com` por convenção (é o audience padrão do GitHub OIDC). Pode ser qualquer string, desde que o workflow use o mesmo `audience`.
-
-### 2. Reiniciar K3s
+#### 2. Reiniciar K3s
 
 ```bash
 sudo systemctl restart k3s
 ```
 
-### 3. Criar ClusterRole e ClusterRoleBinding
-
-```yaml
-# rbac-github-actions.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: github-actions-readonly
-rules:
-  - apiGroups: [""]
-    resources: ["pods", "services", "endpoints"]
-    verbs: ["get", "list"]
-  - apiGroups: ["apps"]
-    resources: ["deployments", "statefulsets"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods/log"]
-    verbs: ["get"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: github-actions-readonly
-subjects:
-  - kind: User
-    name: "repo:acdgbrasil/edge-cloud-infra:ref:refs/heads/main"
-    apiGroup: rbac.authorization.k8s.io
-roleRef:
-  kind: ClusterRole
-  name: github-actions-readonly
-  apiGroup: rbac.authorization.k8s.io
-```
+#### 3. Aplicar RBAC
 
 ```bash
-kubectl apply -f rbac-github-actions.yaml
+kubectl apply -f clusters/master-xeon/rbac-github-actions.yaml
 ```
 
-### 4. Usar no GitHub Actions workflow
+## Arquivos
 
-```yaml
-permissions:
-  id-token: write  # Required for OIDC
-  contents: read
+| Arquivo | O que faz |
+|---|---|
+| `clusters/master-xeon/rbac-github-actions.yaml` | ClusterRole (readonly) + bindings para org acdgbrasil |
+| `scripts/setup-oidc.sh` | Script de setup automatizado |
+| `.github/workflows/smoke-test.yml` | Smoke test com modo `http` e `kubectl` |
 
-steps:
-  - name: Get OIDC token
-    id: oidc
-    uses: actions/github-script@v7
-    with:
-      script: |
-        const token = await core.getIDToken('sts.amazonaws.com');
-        core.setOutput('token', token);
+## RBAC — Permissões concedidas
 
-  - name: Configure kubectl
-    run: |
-      kubectl config set-cluster k3s \
-        --server=https://<tailscale-ip>:6443 \
-        --certificate-authority=/dev/null \
-        --insecure-skip-tls-verify=true
+O ClusterRole `github-actions-readonly` permite:
+- **Pods**: get, list, logs
+- **Deployments/StatefulSets/ReplicaSets**: get, list
+- **Services/Endpoints/Events**: get, list
+- **Flux Kustomizations/HelmReleases**: get, list
+- **Git/Helm Repositories (Flux)**: get, list
 
-      kubectl config set-credentials github-oidc \
-        --token="${{ steps.oidc.outputs.token }}"
+Nenhuma permissão de escrita. Apenas leitura.
 
-      kubectl config set-context github \
-        --cluster=k3s \
-        --user=github-oidc
+## Uso no Smoke Test
 
-      kubectl config use-context github
+O workflow `smoke-test.yml` tem dois modos:
 
-  - name: Health check
-    run: |
-      kubectl get pods -l app=social-care -o wide
-      kubectl get pods -l app=conecta-web -o wide
+### HTTP (padrão, sem OIDC)
 ```
+Actions → Run workflow → mode: http
+```
+Curl nos endpoints públicos `/health`. Funciona sem setup OIDC.
 
-## Status
+### Kubectl (requer OIDC)
+```
+Actions → Run workflow → mode: kubectl
+```
+Conecta via OIDC ao K3s API server e verifica:
+- Status de todos os deployments
+- Pods não-Running ou com restarts
+- Flux reconciliation status
+- Resource usage (se metrics-server estiver ativo)
 
-**Pendente** — requer configuração manual no K3s API server (step 1-3). Após configuração, o smoke-test.yml pode ser atualizado para usar kubectl ao invés de curl externo, verificando pods diretamente no cluster.
+## Verificação
 
-## Alternativa atual
+Após rodar `setup-oidc.sh`, teste com:
 
-O smoke-test.yml usa curl contra os endpoints públicos (/health), que funciona sem OIDC mas não dá visibilidade sobre o estado interno do cluster (pods restartando, OOMKilled, etc).
+```bash
+# No GitHub: Actions → smoke-test → Run workflow → mode: kubectl
+# Ou via CLI:
+gh workflow run smoke-test.yml -f mode=kubectl -f environment=prod --repo acdgbrasil/edge-cloud-infra
+```
