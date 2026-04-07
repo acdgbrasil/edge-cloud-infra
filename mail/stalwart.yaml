@@ -25,9 +25,10 @@
 #      kubectl create secret generic stalwart-admin-credentials -n mail \
 #        --from-literal=admin-password='<SENHA-ADMIN>'
 #
-#   5. TLS: gerenciado automaticamente via ACME DNS-01 (Let's Encrypt + Cloudflare).
-#      Requer: secret stalwart-cf-credentials com API token Cloudflare.
+#   5. TLS: CronJob acme-cert-renew gera cert Let's Encrypt via DNS-01 + Cloudflare.
+#      Requer: secret stalwart-cf-credentials com API token Cloudflare (zona noticetable.com).
 #      CNAME na Umbler: _acme-challenge.mail → _acme-challenge.mail.noticetable.com
+#      O CronJob cria/atualiza o secret stalwart-tls-cert automaticamente.
 #
 #   6. Garantir diretório no Xeon:
 #      sudo mkdir -p /var/lib/stalwart
@@ -78,17 +79,13 @@ data:
     bind = ["[::]:8080"]
     protocol = "http"
 
-    # --- TLS (ACME Let's Encrypt via DNS-01 + Cloudflare) ---
-    # Usa CNAME delegation: _acme-challenge.mail.acdgbrasil.com.br → _acme-challenge.mail.noticetable.com
-    # Stalwart cria TXT records na Cloudflare (noticetable.com) via API
-    [acme."letsencrypt"]
-    directory = "https://acme-v02.api.letsencrypt.org/directory"
-    challenge = "dns-01"
-    domains = ["mail.acdgbrasil.com.br"]
-    contact = ["mailto:admin@acdgbrasil.com.br"]
+    # --- TLS (cert gerenciado pelo CronJob acme-cert-renew) ---
+    # Cert Let's Encrypt via acme.sh DNS-01 + Cloudflare (CNAME delegation)
+    # O CronJob renova o cert e atualiza o secret stalwart-tls-cert
+    [certificate."default"]
+    cert = "%{file:/opt/stalwart/etc/tls/tls.crt}%"
+    private-key = "%{file:/opt/stalwart/etc/tls/tls.key}%"
     default = true
-    provider = "cloudflare"
-    secret = "%{env:CF_API_TOKEN}%"
 
     # --- Storage (PostgreSQL) ---
     [store."postgresql"]
@@ -149,6 +146,123 @@ data:
     [remote."relay".auth]
     username = "resend"
     secret = "%{env:RESEND_SMTP_KEY}%"
+
+# ==========================================================
+# CronJob — Renovação automática do cert TLS via acme.sh
+# Usa DNS-01 com Cloudflare (CNAME delegation noticetable.com)
+# Roda a cada 60 dias, gera/renova cert e atualiza o secret
+# ==========================================================
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: acme-cert-renew
+  namespace: mail
+spec:
+  schedule: "0 3 1 */2 *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          nodeSelector:
+            hardware-type: high-performance
+          serviceAccountName: acme-cert-renew
+          containers:
+          - name: acme
+            image: neilpang/acme.sh:latest
+            command:
+            - sh
+            - -c
+            - |
+              export CF_Token="$CF_API_TOKEN"
+              export CF_Zone_ID="$CF_ZONE_ID"
+
+              # Registrar conta ACME (idempotente)
+              acme.sh --register-account -m admin@acdgbrasil.com.br --server letsencrypt
+
+              # Emitir/renovar cert via DNS-01 Cloudflare
+              acme.sh --issue \
+                --dns dns_cf \
+                --domain mail.acdgbrasil.com.br \
+                --server letsencrypt \
+                --force
+
+              # Instalar cert nos arquivos temporários
+              acme.sh --install-cert -d mail.acdgbrasil.com.br \
+                --cert-file /certs/tls.crt \
+                --key-file /certs/tls.key \
+                --fullchain-file /certs/tls.crt
+
+              # Atualizar o secret no K8s
+              if [ -f /certs/tls.crt ] && [ -f /certs/tls.key ]; then
+                cat <<EOKUBE | kubectl apply -f -
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: stalwart-tls-cert
+                namespace: mail
+              type: kubernetes.io/tls
+              data:
+                tls.crt: $(base64 -w0 /certs/tls.crt)
+                tls.key: $(base64 -w0 /certs/tls.key)
+              EOKUBE
+
+                # Restart Stalwart pra carregar o novo cert
+                kubectl rollout restart deployment stalwart -n mail
+                echo "Cert renewed and applied successfully"
+              else
+                echo "ERROR: cert files not found" && exit 1
+              fi
+            env:
+            - name: CF_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: stalwart-cf-credentials
+                  key: api-token
+            - name: CF_ZONE_ID
+              value: "0668fa9ca9426fa189bcf90b01dd8242"
+            volumeMounts:
+            - name: certs
+              mountPath: /certs
+          volumes:
+          - name: certs
+            emptyDir: {}
+          restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: acme-cert-renew
+  namespace: mail
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: acme-cert-renew
+  namespace: mail
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "create", "update", "patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: acme-cert-renew
+  namespace: mail
+subjects:
+- kind: ServiceAccount
+  name: acme-cert-renew
+  namespace: mail
+roleRef:
+  kind: Role
+  name: acme-cert-renew
+  apiGroup: rbac.authorization.k8s.io
 
 # ==========================================================
 # BitwardenSecret — API key do Resend (relay SMTP)
@@ -227,17 +341,15 @@ spec:
             secretKeyRef:
               name: resend-credentials
               key: api-key
-        - name: CF_API_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: stalwart-cf-credentials
-              key: api-token
         volumeMounts:
         - name: data
           mountPath: /opt/stalwart
         - name: config
           mountPath: /opt/stalwart/etc/config.toml
           subPath: config.toml
+        - name: tls
+          mountPath: /opt/stalwart/etc/tls
+          readOnly: true
         - name: dkim
           mountPath: /opt/stalwart/etc/dkim
           readOnly: true
@@ -266,6 +378,14 @@ spec:
         hostPath:
           path: /var/lib/stalwart
           type: DirectoryOrCreate
+      - name: tls
+        secret:
+          secretName: stalwart-tls-cert
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
       - name: dkim
         secret:
           secretName: stalwart-dkim-key
