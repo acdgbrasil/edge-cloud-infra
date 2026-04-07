@@ -69,7 +69,7 @@ spec:
         hardware-type: high-performance
       containers:
       - name: conecta-web-hml
-        image: ghcr.io/acdgbrasil/conecta-web:v0.2.2
+        image: ghcr.io/acdgbrasil/conecta-web:v0.3.0
         ports:
         - containerPort: 80
         readinessProbe:
@@ -130,7 +130,7 @@ spec:
         hardware-type: high-performance
       containers:
       - name: social-care-bff-hml
-        image: ghcr.io/acdgbrasil/social-care-bff:v0.2.2
+        image: ghcr.io/acdgbrasil/social-care-bff:v0.3.0
         ports:
         - containerPort: 8081
         env:
