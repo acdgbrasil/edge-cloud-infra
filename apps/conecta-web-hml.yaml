@@ -69,7 +69,7 @@ spec:
         hardware-type: high-performance
       containers:
       - name: conecta-web-hml
-        image: ghcr.io/acdgbrasil/conecta-web:sha-901eee4
+        image: ghcr.io/acdgbrasil/conecta-web:v0.3.10
         ports:
         - containerPort: 80
         readinessProbe:
