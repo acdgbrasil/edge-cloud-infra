@@ -1,0 +1,11 @@
+name: PR Size Guard
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  size:
+    name: PR size check
+    uses: acdgbrasil/.github/.github/workflows/reusable-pr-size-guard.yml@main
