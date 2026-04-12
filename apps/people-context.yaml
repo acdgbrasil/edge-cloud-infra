@@ -124,7 +124,7 @@ spec:
            done']
       containers:
       - name: people-context
-        image: ghcr.io/acdgbrasil/svc-people-context:v0.2.0
+        image: ghcr.io/acdgbrasil/svc-people-context:v0.2.1
         ports:
         - containerPort: 3000
         env:
@@ -147,6 +147,8 @@ spec:
           value: "https://auth.acdgbrasil.com.br/oauth/v2/keys"
         - name: ZITADEL_ISSUER
           value: "https://auth.acdgbrasil.com.br"
+        - name: ZITADEL_PROJECT_ID
+          value: "363109883022671995"
         - name: NATS_URL
           value: "nats://nats.default.svc.cluster.local:4222"
         readinessProbe:
