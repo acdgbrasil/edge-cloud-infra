@@ -124,7 +124,7 @@ spec:
            done']
       containers:
       - name: people-context
-        image: ghcr.io/acdgbrasil/svc-people-context:v0.2.1
+        image: ghcr.io/acdgbrasil/svc-people-context:v0.2.2
         ports:
         - containerPort: 3000
         env:
