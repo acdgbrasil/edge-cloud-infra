@@ -148,7 +148,7 @@ spec:
         hardware-type: high-performance
       containers:
       - name: social-care
-        image: ghcr.io/acdgbrasil/svc-social-care:v0.13.3
+        image: ghcr.io/acdgbrasil/svc-social-care:v0.14.0
         ports:
         - containerPort: 3000
         env:
