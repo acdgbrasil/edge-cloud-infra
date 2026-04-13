@@ -1,0 +1,261 @@
+# -----------------------------------------------------------
+# svc-analysis-bi — Descriptive Analytics Service (ACDG)
+# Image: ghcr.io/acdgbrasil/svc-analysis-bi
+# Go binary, PostgreSQL analítico dedicado, NATS consumer
+# -----------------------------------------------------------
+
+---
+# 1. BitwardenSecret — PostgreSQL credentials (analysis-bi)
+apiVersion: k8s.bitwarden.com/v1
+kind: BitwardenSecret
+metadata:
+  name: postgres-analysis-bi-bitwardensecret
+spec:
+  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
+  secretName: postgres-analysis-bi-credentials
+  authToken:
+    secretName: bw-auth-token
+    secretKey: token
+  map:
+    - bwSecretId: "03118f27-80b9-4dd6-9081-b42b0024a7b8"  # BI_DB_PASSWORD
+      secretKeyName: password
+    - bwSecretId: "7aa6c30b-2d94-48e0-9af1-b42b00244b8d"  # BI_DB_USER
+      secretKeyName: username
+
+---
+# 2. BitwardenSecret — PATIENT_HASH_SALT (critical secret, LGPD)
+apiVersion: k8s.bitwarden.com/v1
+kind: BitwardenSecret
+metadata:
+  name: analysis-bi-secrets-bitwardensecret
+spec:
+  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
+  secretName: analysis-bi-secrets
+  authToken:
+    secretName: bw-auth-token
+    secretKey: token
+  map:
+    - bwSecretId: "ece9030b-bc97-43c8-bc2b-b42b00259a04"  # PROD-PATIENT_HASH_SALT
+      secretKeyName: patient-hash-salt
+
+---
+# 3. PostgreSQL — Dedicated analytical database (database-per-service)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-analysis-bi
+  labels:
+    app: postgres-analysis-bi
+spec:
+  serviceName: postgres-analysis-bi
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-analysis-bi
+  template:
+    metadata:
+      labels:
+        app: postgres-analysis-bi
+    spec:
+      nodeSelector:
+        hardware-type: high-performance
+      containers:
+      - name: postgres
+        image: postgres:15
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-analysis-bi-credentials
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-analysis-bi-credentials
+              key: password
+        - name: POSTGRES_DB
+          value: analysis_bi
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "postgres"]
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-analysis-bi
+spec:
+  selector:
+    app: postgres-analysis-bi
+  ports:
+  - port: 5432
+    targetPort: 5432
+
+---
+# 4. Deployment — svc-analysis-bi
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analysis-bi
+  labels:
+    app: analysis-bi
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: analysis-bi
+  template:
+    metadata:
+      labels:
+        app: analysis-bi
+    spec:
+      imagePullSecrets:
+      - name: ghcr-credentials
+      nodeSelector:
+        hardware-type: high-performance
+      initContainers:
+      - name: wait-for-deps
+        image: busybox:1.36
+        command: ['sh', '-c',
+          'until nc -z postgres-analysis-bi 5432 && nc -z nats 4222; do
+             echo "Waiting for postgres-analysis-bi and nats...";
+             sleep 5;
+           done']
+      containers:
+      - name: analysis-bi
+        image: ghcr.io/acdgbrasil/svc-analysis-bi:v0.1.0
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        # --- Server ---
+        - name: PORT
+          value: "8080"
+        - name: SERVER_HOST
+          value: "0.0.0.0"
+        - name: LOG_LEVEL
+          value: "info"
+        # --- Database ---
+        - name: DB_HOST
+          value: postgres-analysis-bi
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          value: analysis_bi
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-analysis-bi-credentials
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-analysis-bi-credentials
+              key: password
+        - name: DB_MAX_CONNS
+          value: "15"
+        - name: DB_IDLE_TIMEOUT
+          value: "5m"
+        # --- NATS JetStream ---
+        - name: NATS_URL
+          value: "nats://nats:4222"
+        - name: NATS_STREAM
+          value: "SOCIAL_CARE_EVENTS"
+        - name: NATS_CONSUMER
+          value: "analysis-bi"
+        # --- Auth (JWT/OIDC via Zitadel) ---
+        - name: AUTH_REQUIRED
+          value: "true"
+        - name: JWKS_URL
+          value: "https://auth.acdgbrasil.com.br/oauth/v2/keys"
+        - name: AUTH_ISSUER
+          value: "https://auth.acdgbrasil.com.br"
+        # --- LGPD: Anonymization salt ---
+        - name: PATIENT_HASH_SALT
+          valueFrom:
+            secretKeyRef:
+              name: analysis-bi-secrets
+              key: patient-hash-salt
+        # --- Readiness / Liveness ---
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 30
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          readOnlyRootFilesystem: true
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+
+---
+# 5. Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: analysis-bi
+spec:
+  selector:
+    app: analysis-bi
+  ports:
+  - port: 80
+    targetPort: 8080
+
+---
+# 6. Ingress (Traefik)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: analysis-bi-ingress
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: analysis-bi.acdgbrasil.com.br
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: analysis-bi
+            port:
+              number: 80

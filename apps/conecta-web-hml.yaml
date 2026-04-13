@@ -130,7 +130,7 @@ spec:
         hardware-type: high-performance
       containers:
       - name: social-care-bff-hml
-        image: ghcr.io/acdgbrasil/social-care-bff:sha-901eee4
+        image: ghcr.io/acdgbrasil/social-care-bff:v0.3.4
         ports:
         - containerPort: 8081
         env:
