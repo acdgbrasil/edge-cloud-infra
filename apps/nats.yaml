@@ -1,6 +1,8 @@
 # -----------------------------------------------------------
 # NATS JetStream — Message Broker
-# Streams: SOCIAL_CARE_EVENTS (social-care.events.>)
+# Streams:
+#   - SOCIAL_CARE_EVENTS (social-care.events.>)
+#   - PEOPLE_EVENTS (people.>)
 # -----------------------------------------------------------
 
 apiVersion: apps/v1
@@ -98,5 +100,21 @@ spec:
             --no-allow-rollup \
             --deny-delete \
             --deny-purge \
-            --defaults 2>/dev/null || echo "Stream already exists or created successfully"
+            --defaults 2>/dev/null || echo "Stream SOCIAL_CARE_EVENTS already exists or created successfully"
+
+          nats -s nats://nats:4222 stream add PEOPLE_EVENTS \
+            --subjects="people.>" \
+            --retention=limits \
+            --max-age=720h \
+            --storage=file \
+            --replicas=1 \
+            --discard=old \
+            --max-msgs=-1 \
+            --max-bytes=-1 \
+            --max-msg-size=-1 \
+            --dupe-window=2m \
+            --no-allow-rollup \
+            --deny-delete \
+            --deny-purge \
+            --defaults 2>/dev/null || echo "Stream PEOPLE_EVENTS already exists or created successfully"
       restartPolicy: Never

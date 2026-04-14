@@ -21,6 +21,22 @@ spec:
       secretKeyName: password
 
 ---
+# 1b. BitwardenSecret — Zitadel Service Account PAT (HML)
+apiVersion: k8s.bitwarden.com/v1
+kind: BitwardenSecret
+metadata:
+  name: zitadel-people-hml-bitwardensecret
+spec:
+  organizationId: "d00e0ecf-235b-4168-8367-b35e00dbf84d"
+  secretName: zitadel-people-hml-credentials
+  authToken:
+    secretName: bw-auth-token
+    secretKey: token
+  map:
+    - bwSecretId: "9b984687-68a5-4943-a502-b42b0139a1f0"
+      secretKeyName: service-account-token
+
+---
 # 2. StatefulSet — PostgreSQL HML (isolated instance)
 apiVersion: apps/v1
 kind: StatefulSet
@@ -119,7 +135,7 @@ spec:
            done']
       containers:
       - name: people-context
-        image: ghcr.io/acdgbrasil/svc-people-context:v0.2.2
+        image: ghcr.io/acdgbrasil/svc-people-context:v0.3.0
         ports:
         - containerPort: 3000
         env:
@@ -144,6 +160,13 @@ spec:
           value: "https://auth.acdgbrasil.com.br"
         - name: ZITADEL_PROJECT_ID
           value: "363109883022671995"
+        - name: ZITADEL_MANAGEMENT_URL
+          value: "https://auth.acdgbrasil.com.br"
+        - name: ZITADEL_SERVICE_ACCOUNT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: zitadel-people-hml-credentials
+              key: service-account-token
         - name: NATS_URL
           value: "nats://nats.default.svc.cluster.local:4222"
         readinessProbe:
