@@ -146,7 +146,7 @@ spec:
            done']
       containers:
       - name: analysis-bi
-        image: ghcr.io/acdgbrasil/svc-analysis-bi:v0.1.0
+        image: ghcr.io/acdgbrasil/svc-analysis-bi:v0.1.1
         ports:
         - containerPort: 8080
           name: http
