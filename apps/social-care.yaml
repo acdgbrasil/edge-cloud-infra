@@ -36,7 +36,7 @@ spec:
            done']
       containers:
       - name: social-care
-        image: ghcr.io/acdgbrasil/svc-social-care:v0.14.1
+        image: ghcr.io/acdgbrasil/svc-social-care@sha256:7caabead28fcd92a79e065e5cb1ecb16f40759fab959b091e8d18139a233441e
         ports:
         - containerPort: 3000
         env:
